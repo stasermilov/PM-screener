@@ -48,6 +48,9 @@ export const config = {
   // The report lists markets added within this rolling window (in days),
   // independent of how often it refreshes.
   windowDays: num('WINDOW_DAYS', 7),
+  // Markets added within this many days are pulled into a prominent "fresh"
+  // area at the top of the report. Must be <= windowDays.
+  freshDays: num('FRESH_DAYS', 2),
   // When true, the list is restricted to markets over the volume threshold.
   // Default false: show every market in the window and just highlight the big
   // ones.

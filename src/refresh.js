@@ -7,7 +7,13 @@ import path from 'node:path';
 
 import { config } from './config.js';
 import { fetchGeopoliticsMarkets } from './gammaClient.js';
-import { loadState, saveState, reconcileAll, selectWithinWindow } from './marketStore.js';
+import {
+  loadState,
+  saveState,
+  reconcileAll,
+  selectWithinWindow,
+  partitionByFreshness,
+} from './marketStore.js';
 import { buildSummary } from './summary.js';
 import { renderHtml } from './render.js';
 
@@ -41,12 +47,23 @@ export async function refresh(deps = {}) {
   const recentEvents = selectWithinWindow(reconciled.events, windowOpts);
   const recentSubmarkets = selectWithinWindow(reconciled.submarkets, windowOpts);
 
+  // Split each list into a fresh (last freshDays) group and the rest.
+  const freshOpts = { now, freshDays: config.freshDays };
+  const evParts = partitionByFreshness(recentEvents, freshOpts);
+  const smParts = partitionByFreshness(recentSubmarkets, freshOpts);
+
   const summary = buildSummary(
-    { events: recentEvents, submarkets: recentSubmarkets },
+    {
+      freshEvents: evParts.fresh,
+      earlierEvents: evParts.earlier,
+      freshSubmarkets: smParts.fresh,
+      earlierSubmarkets: smParts.earlier,
+    },
     {
       threshold: config.volumeThreshold,
       scheduleHours: config.scheduleHours,
       windowDays: config.windowDays,
+      freshDays: config.freshDays,
       showOnlyHighlighted: config.showOnlyHighlighted,
       generatedAt: now,
       tagSlug: tagSlug || config.tagSlug,

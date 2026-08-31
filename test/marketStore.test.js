@@ -6,6 +6,7 @@ import {
   selectWithinWindow,
   reconcileAll,
   addedAt,
+  partitionByFreshness,
 } from '../src/marketStore.js';
 import { normalizeEvents, normalizeSubmarkets } from '../src/normalize.js';
 import { rawEvents } from './fixtures.js';
@@ -74,6 +75,23 @@ test('selectWithinWindow uses firstSeenAt when createdAt is missing', () => {
   ];
   const recent = selectWithinWindow(items, { now, windowDays: 7, threshold: 3000 });
   assert.deepEqual(recent.map((m) => m.id), ['x']);
+});
+
+test('partitionByFreshness splits into fresh/earlier with no overlap', () => {
+  const now = new Date('2026-08-31T12:00:00Z');
+  const items = [
+    { id: 'a', createdAt: '2026-08-31T00:00:00Z' }, // ~half a day -> fresh
+    { id: 'b', createdAt: '2026-08-30T06:00:00Z' }, // ~1.25 days -> fresh
+    { id: 'c', createdAt: '2026-08-28T00:00:00Z' }, // ~3.5 days -> earlier
+    { id: 'd', firstSeenAt: '2026-08-25T00:00:00Z' }, // ~6.5 days -> earlier
+  ];
+  const { fresh, earlier } = partitionByFreshness(items, { now, freshDays: 2 });
+  assert.deepEqual(fresh.map((m) => m.id), ['a', 'b']);
+  assert.deepEqual(earlier.map((m) => m.id), ['c', 'd']);
+
+  // No id appears in both buckets (no duplication).
+  const overlap = fresh.filter((f) => earlier.some((e) => e.id === f.id));
+  assert.equal(overlap.length, 0);
 });
 
 test('reconcileAll returns both seen maps and annotated lists', () => {

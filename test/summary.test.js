@@ -6,107 +6,99 @@ import { renderHtml, formatUsd, escapeHtml } from '../src/render.js';
 import { normalizeEvents, normalizeSubmarkets } from '../src/normalize.js';
 import { rawEvents } from './fixtures.js';
 
-function summaryFromFixtures() {
-  const now = new Date('2026-08-31T12:00:00Z');
-  const raw = rawEvents(now.toISOString());
-  const events = normalizeEvents(raw);
-  const submarkets = normalizeSubmarkets(raw);
+const GEN = new Date('2026-08-31T12:00:00Z');
+
+function summaryFromFixtures(extra = {}) {
+  const raw = rawEvents(GEN.toISOString());
   return buildSummary(
-    { events, submarkets },
+    {
+      freshEvents: normalizeEvents(raw),
+      freshSubmarkets: normalizeSubmarkets(raw),
+      ...extra,
+    },
     {
       threshold: 3000,
-      scheduleHours: 6,
-      generatedAt: now,
+      windowDays: 7,
+      freshDays: 2,
+      generatedAt: GEN,
       tagSlug: 'geopolitics',
-      eventsTracked: events.length,
-      submarketsTracked: submarkets.length,
+      refreshUrl: 'https://github.com/o/r/actions/workflows/geopolitics-summary.yml',
     },
   );
 }
 
-test('events over the threshold are highlighted and sorted to the top', () => {
-  const { events } = summaryFromFixtures();
+test('within a group, over-threshold items are highlighted and sorted to the top', () => {
+  const { fresh } = summaryFromFixtures();
   // id 1 (5000) and id 3 (3500.5) are over 3000.
-  assert.equal(events.stats.highlightedCount, 2);
-
-  const flags = events.items.map((m) => m.highlighted);
-  const firstNonHighlighted = flags.indexOf(false);
-  assert.ok(!flags.slice(firstNonHighlighted).includes(true)); // all HL first
-
-  assert.equal(events.items[0].id, '1'); // 5000
-  assert.equal(events.items[1].id, '3'); // 3500.5
+  assert.equal(fresh.events.stats.highlightedCount, 2);
+  const flags = fresh.events.items.map((m) => m.highlighted);
+  const firstNonHL = flags.indexOf(false);
+  assert.ok(!flags.slice(firstNonHL).includes(true), 'all highlighted come first');
+  assert.equal(fresh.events.items[0].id, '1'); // 5000
+  assert.equal(fresh.events.items[1].id, '3'); // 3500.5
 });
 
-test('sub-markets are a separate section with the same highlight rule', () => {
-  const { submarkets } = summaryFromFixtures();
-  // 4 sub-markets total (11,21,41,42); only 11 (5000) is over 3000.
-  assert.equal(submarkets.stats.newCount, 4);
-  assert.equal(submarkets.stats.highlightedCount, 1);
-  assert.equal(submarkets.items[0].id, '11'); // highlighted, on top
-  assert.equal(submarkets.items[0].highlighted, true);
-  assert.equal(submarkets.items[1].highlighted, false);
+test('sub-markets keep the same highlight rule within their group', () => {
+  const { fresh } = summaryFromFixtures();
+  assert.equal(fresh.submarkets.stats.newCount, 4);
+  assert.equal(fresh.submarkets.stats.highlightedCount, 1); // only sub 11 (5000)
+  assert.equal(fresh.submarkets.items[0].id, '11');
 });
 
 test('threshold is exclusive (exactly 3000 is not highlighted)', () => {
   const summary = buildSummary(
-    { events: [{ id: 'a', title: 'exact', volume: 3000, tags: [], url: '#' }], submarkets: [] },
-    { threshold: 3000, generatedAt: new Date() },
+    { freshEvents: [{ id: 'a', title: 'exact', volume: 3000, tags: [], url: '#' }] },
+    { threshold: 3000, generatedAt: GEN },
   );
-  assert.equal(summary.events.items[0].highlighted, false);
+  assert.equal(summary.fresh.events.items[0].highlighted, false);
 });
 
-test('stats compute counts and totals per section', () => {
-  const { events, submarkets } = summaryFromFixtures();
-  assert.equal(events.stats.newCount, 5);
-  assert.equal(events.stats.topVolume, 5000);
-  assert.equal(events.stats.totalVolume, Math.round((5000 + 1200 + 3500.5 + 2600 + 10) * 100) / 100);
-
-  assert.equal(submarkets.stats.topVolume, 5000);
-  assert.equal(submarkets.stats.totalVolume, 5000 + 1200 + 2000 + 600);
+test('totals aggregate fresh, earlier, and highlighted across both types', () => {
+  const summary = summaryFromFixtures({
+    earlierEvents: [{ id: 'z', title: 'older', volume: 10, tags: [], url: '#' }],
+  });
+  // fresh: 5 events + 4 sub-markets = 9; earlier: 1 event.
+  assert.equal(summary.totals.freshCount, 9);
+  assert.equal(summary.totals.earlierCount, 1);
+  assert.equal(summary.totals.windowCount, 10);
+  // highlighted: fresh events 2 + fresh subs 1 + earlier 0 = 3.
+  assert.equal(summary.totals.highlightedCount, 3);
 });
 
-test('renderHtml renders both sections, highlights, and escapes untrusted text', () => {
-  const summary = summaryFromFixtures();
-  const html = renderHtml(summary, { now: new Date('2026-08-31T12:00:00Z') });
+test('renderHtml shows a fresh area on top and an earlier area below', () => {
+  const summary = summaryFromFixtures({
+    earlierEvents: [{ id: 'z', title: 'older market', volume: 500, tags: [], url: '#' }],
+  });
+  const html = renderHtml(summary, { now: GEN });
 
-  assert.ok(html.includes('<!doctype html>'));
-  assert.ok(html.includes('Newly added markets'));
-  assert.ok(html.includes('Newly added sub-markets'));
-  assert.ok(html.includes('class="card highlight"'), 'expected highlighted cards');
+  const freshIdx = html.indexOf('Just added');
+  const earlierIdx = html.indexOf('days ago');
+  assert.ok(freshIdx > -1, 'has the fresh area');
+  assert.ok(earlierIdx > -1, 'has the earlier area');
+  assert.ok(freshIdx < earlierIdx, 'fresh area comes first');
+
+  assert.ok(html.includes('Last 2d') && html.includes('Last 7d'), 'top stats show both windows');
+  assert.ok(html.includes('class="card highlight"'), 'highlighted cards present');
   assert.ok(html.includes(formatUsd(3000)), 'legend shows the threshold');
-  assert.ok(html.includes('62%'), 'sub-market outcome prices are shown');
+  assert.ok(html.includes('62%'), 'sub-market outcome prices shown');
 
   // XSS fixture must be escaped, not rendered as a tag.
   assert.ok(!html.includes('<script>alert(1)</script>'));
   assert.ok(html.includes(escapeHtml('Danger <script>alert(1)</script> & "quotes"')));
 });
 
-test('renderHtml shows an empty state when a section has no new items', () => {
-  const summary = buildSummary(
-    { events: [], submarkets: [] },
-    { threshold: 3000, generatedAt: new Date(), isFirstRun: true },
-  );
-  const html = renderHtml(summary);
-  assert.ok(html.includes('No newly added markets'));
-  assert.ok(html.includes('No newly added sub-markets'));
+test('renderHtml includes the Update button, window wording, and refresh URL', () => {
+  const html = renderHtml(summaryFromFixtures(), { now: GEN });
+  assert.ok(html.includes('id="update-btn"'));
+  assert.ok(html.includes('Update now'));
+  assert.ok(html.includes('last 7 days'));
+  assert.ok(html.includes('https://github.com/o/r/actions/workflows/geopolitics-summary.yml'));
 });
 
-test('renderHtml includes the Update button, window wording, and refresh URL', () => {
-  const summary = buildSummary(
-    { events: [], submarkets: [] },
-    {
-      threshold: 3000,
-      windowDays: 7,
-      generatedAt: new Date('2026-08-31T12:00:00Z'),
-      refreshUrl: 'https://github.com/o/r/actions/workflows/geopolitics-summary.yml',
-    },
-  );
+test('renderHtml shows an empty fresh state and hides the earlier area when nothing is new', () => {
+  const summary = buildSummary({}, { threshold: 3000, windowDays: 7, freshDays: 2, generatedAt: GEN });
   const html = renderHtml(summary);
-  assert.ok(html.includes('id="update-btn"'), 'has the Update button');
-  assert.ok(html.includes('Update now'));
-  assert.ok(html.includes('last 7 days'), 'header states the window');
-  assert.ok(
-    html.includes('https://github.com/o/r/actions/workflows/geopolitics-summary.yml'),
-    'embeds the workflow URL for the Pages fallback',
-  );
+  assert.equal(summary.totals.windowCount, 0);
+  assert.ok(html.includes('Nothing new in the last 2'));
+  assert.ok(!html.includes('days ago'), 'earlier area is hidden when the window is empty');
 });

@@ -10,13 +10,11 @@ async function main() {
   console.log(`[pm-screener] refreshing "${config.tagSlug}" markets from ${config.apiBase}`);
   try {
     const { summary, htmlPath, dataPath } = await refresh();
-    const ev = summary.events.stats;
-    const sm = summary.submarkets.stats;
-    const win = `last ${config.windowDays}d`;
+    const t = summary.totals;
     console.log(
       `[pm-screener] done in ${Date.now() - startedAt}ms\n` +
-        `  markets:     ${ev.newCount} added (${win}), ${ev.highlightedCount} over ${config.volumeThreshold} (tracked ${ev.totalTracked})\n` +
-        `  sub-markets: ${sm.newCount} added (${win}), ${sm.highlightedCount} over ${config.volumeThreshold} (tracked ${sm.totalTracked})`,
+        `  last ${config.freshDays}d (fresh): ${t.freshCount}\n` +
+        `  last ${config.windowDays}d (total): ${t.windowCount}, ${t.highlightedCount} over ${config.volumeThreshold}`,
     );
     console.log(`[pm-screener] wrote ${htmlPath}`);
     console.log(`[pm-screener] wrote ${dataPath}`);

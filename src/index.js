@@ -25,10 +25,7 @@ async function task() {
     try {
       const { summary } = await refresh();
       status.lastRunAt = summary.generatedAt;
-      status.lastStats = {
-        events: summary.events.stats,
-        submarkets: summary.submarkets.stats,
-      };
+      status.lastStats = summary.totals;
       status.lastError = null;
       return summary;
     } catch (err) {

@@ -135,31 +135,60 @@ function renderSubmarketCard(m, now, threshold) {
       </article>`;
 }
 
-function renderStats(stats, threshold) {
+function renderTopStats(summary) {
+  const t = summary.totals;
   return `<section class="stats">
-      <div class="stat"><div class="n">${stats.newCount}</div><div class="l">Added</div></div>
-      <div class="stat"><div class="n">${stats.highlightedCount}</div><div class="l">Over ${formatUsd(threshold)}</div></div>
-      <div class="stat"><div class="n">${formatUsd(stats.topVolume)}</div><div class="l">Top volume</div></div>
-      <div class="stat"><div class="n">${formatUsd(stats.totalVolume)}</div><div class="l">Combined volume</div></div>
+      <div class="stat"><div class="n">${t.freshCount}</div><div class="l">Last ${summary.freshDays}d</div></div>
+      <div class="stat"><div class="n">${t.windowCount}</div><div class="l">Last ${summary.windowDays}d</div></div>
+      <div class="stat"><div class="n">${t.highlightedCount}</div><div class="l">Over ${formatUsd(summary.threshold)}</div></div>
     </section>`;
 }
 
-function renderSection({ section, title, noun, emoji, threshold, now, cardFn, emptyReason }) {
-  const tracked =
-    section.stats.totalTracked != null
-      ? `<span class="section-count">${section.stats.totalTracked} tracked</span>`
-      : '';
-  const body = section.items.length
-    ? section.items.map((m) => cardFn(m, now, threshold)).join('\n')
-    : `<div class="empty"><div class="empty-emoji">${emoji}</div><p>No newly added ${escapeHtml(noun)} this cycle.</p><p class="muted">${escapeHtml(emptyReason)}</p></div>`;
+/** One typed sub-group (Markets or Sub-markets) within an area. Empty groups
+ *  render nothing. */
+function renderSubgroup({ group, label, emoji, threshold, now, cardFn }) {
+  if (!group.items.length) return '';
+  const over = group.stats.highlightedCount
+    ? ` · <span class="sub-hl">${group.stats.highlightedCount} over ${formatUsd(threshold)}</span>`
+    : '';
+  return `
+      <div class="subgroup">
+        <h3 class="subgroup-title">${emoji} ${escapeHtml(label)} <span class="subgroup-count">${group.items.length}${over}</span></h3>
+        <div class="cards">
+${group.items.map((m) => cardFn(m, now, threshold)).join('\n')}
+        </div>
+      </div>`;
+}
+
+/** A recency area (Fresh or Earlier) containing the Markets and Sub-markets
+ *  sub-groups. */
+function renderArea({ bucket, title, emoji, badgeClass, threshold, now, emptyText }) {
+  const markets = renderSubgroup({
+    group: bucket.events,
+    label: 'Markets',
+    emoji: '🗺️',
+    threshold,
+    now,
+    cardFn: renderEventCard,
+  });
+  const submarkets = renderSubgroup({
+    group: bucket.submarkets,
+    label: 'Sub-markets',
+    emoji: '🎯',
+    threshold,
+    now,
+    cardFn: renderSubmarketCard,
+  });
+  const count = bucket.events.items.length + bucket.submarkets.items.length;
+  const body =
+    count > 0
+      ? markets + submarkets
+      : `<div class="empty"><p class="muted">${escapeHtml(emptyText)}</p></div>`;
 
   return `
-    <section class="report-section">
-      <h2 class="section-title">${emoji} ${escapeHtml(title)} ${tracked}</h2>
-      ${renderStats(section.stats, threshold)}
-      <div class="cards">
+    <section class="area ${badgeClass}">
+      <h2 class="area-title">${emoji} ${escapeHtml(title)}</h2>
 ${body}
-      </div>
     </section>`;
 }
 
@@ -168,34 +197,33 @@ export function renderHtml(summary, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date(summary.generatedAt);
   const threshold = summary.threshold;
   const windowDays = summary.windowDays ?? 7;
+  const freshDays = summary.freshDays ?? 2;
   const nextRun = nextRunIso(summary.generatedAt, summary.scheduleHours);
-  const windowLabel = `${windowDays} ${windowDays === 1 ? 'day' : 'days'}`;
-  const criteriaNote = summary.showOnlyHighlighted
-    ? ` over ${formatUsd(threshold)} volume`
-    : '';
-  const previousNote = `No geopolitics markets${criteriaNote} were added to Polymarket in the last ${windowLabel}.`;
+  const criteriaNote = summary.showOnlyHighlighted ? ` over ${formatUsd(threshold)} volume` : '';
 
-  const eventsSection = renderSection({
-    section: summary.events,
-    title: 'Newly added markets',
-    noun: 'markets',
-    emoji: '🗺️',
+  const freshArea = renderArea({
+    bucket: summary.fresh,
+    title: `Just added — last ${freshDays} ${freshDays === 1 ? 'day' : 'days'}`,
+    emoji: '🆕',
+    badgeClass: 'area-fresh',
     threshold,
     now,
-    cardFn: renderEventCard,
-    emptyReason: previousNote,
+    emptyText: `Nothing new in the last ${freshDays} ${freshDays === 1 ? 'day' : 'days'}. Check the list below.`,
   });
 
-  const submarketsSection = renderSection({
-    section: summary.submarkets,
-    title: 'Newly added sub-markets',
-    noun: 'sub-markets',
-    emoji: '🎯',
+  const earlierArea = renderArea({
+    bucket: summary.earlier,
+    title: `Added ${freshDays}–${windowDays} days ago`,
+    emoji: '🗓️',
+    badgeClass: 'area-earlier',
     threshold,
     now,
-    cardFn: renderSubmarketCard,
-    emptyReason: previousNote,
+    emptyText: `No geopolitics markets${criteriaNote} were added ${freshDays}–${windowDays} days ago.`,
   });
+
+  // Hide the "earlier" area entirely when the whole window is empty, so a first
+  // deploy with no data doesn't show two empty boxes.
+  const showEarlier = summary.totals.windowCount > 0;
 
   return `<!doctype html>
 <html lang="en">
@@ -207,13 +235,15 @@ export function renderHtml(summary, opts = {}) {
     :root {
       --bg: #f5f6f8; --panel: #ffffff; --text: #16181d; --muted: #6b7280;
       --border: #e5e7eb; --accent: #2f6fed; --hl-bg: ${HL_BG}; --hl-border: #f2d024;
-      --chip: #eef1f6;
+      --chip: #eef1f6; --hl-title: #8a6d00;
+      --fresh-bg: #eef4ff; --fresh-border: #cdddff; --fresh-title: #1d4ed8;
     }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #0f1115; --panel: #171a21; --text: #e9eaee; --muted: #9aa1ac;
         --border: #262b34; --accent: #6ea0ff; --hl-bg: #4a4110; --hl-border: #b8952a;
-        --chip: #232833;
+        --chip: #232833; --hl-title: #e6c15a;
+        --fresh-bg: #131c2e; --fresh-border: #24406e; --fresh-title: #8fb4ff;
       }
     }
     * { box-sizing: border-box; }
@@ -239,11 +269,20 @@ export function renderHtml(summary, opts = {}) {
     .update-btn:disabled { opacity: .6; cursor: default; }
     .update-status { font-size: 13px; color: var(--muted); }
     .update-status a { color: var(--accent); }
-    .report-section { margin-bottom: 36px; }
-    .section-title { font-size: 18px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 8px; }
-    .section-count { font-size: 12px; font-weight: 400; color: var(--muted); }
-    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-      gap: 12px; margin-bottom: 18px; }
+    .area { margin-bottom: 30px; }
+    .area-title { font-size: 19px; margin: 0 0 14px; }
+    .area-fresh { background: var(--fresh-bg); border: 1px solid var(--fresh-border);
+      border-radius: 16px; padding: 18px 18px 6px; }
+    .area-fresh .area-title { color: var(--fresh-title); }
+    .area-earlier .area-title { color: var(--muted); font-size: 17px; }
+    .subgroup { margin-bottom: 12px; }
+    .subgroup-title { font-size: 14px; font-weight: 700; margin: 4px 0 10px;
+      text-transform: uppercase; letter-spacing: .03em; }
+    .subgroup-count { font-weight: 400; text-transform: none; letter-spacing: 0;
+      color: var(--muted); font-size: 13px; }
+    .sub-hl { color: var(--hl-title); font-weight: 600; }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 12px; margin-bottom: 24px; }
     .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
       padding: 12px 14px; }
     .stat .n { font-size: 20px; font-weight: 700; }
@@ -304,9 +343,11 @@ export function renderHtml(summary, opts = {}) {
       Highlighted &amp; pinned to top: over ${formatUsd(threshold)} volume
     </div>
 
+    ${renderTopStats(summary)}
+
     <main>
-${eventsSection}
-${submarketsSection}
+${freshArea}
+${showEarlier ? earlierArea : ''}
     </main>
 
     <footer>

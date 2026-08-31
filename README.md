@@ -2,8 +2,9 @@
 
 An app that summarizes **markets added under the _Geopolitics_ category on
 Polymarket in the last 7 days**, refreshed **every 6 hours** (and on demand via
-an **Update** button). Markets with **over $3,000 volume are highlighted in
-yellow and pinned to the top** of the list.
+an **Update** button). Markets added in the **last 2 days** get their own
+prominent area at the top, and markets with **over $3,000 volume are highlighted
+in yellow and pinned to the top** of each list.
 
 Data comes from the public [Polymarket Gamma API](https://gamma-api.polymarket.com).
 
@@ -13,15 +14,17 @@ On each cycle (and whenever you press **Update now**) the app:
 
 1. Fetches every open event under the `geopolitics` tag from the Gamma API.
 2. Records when each market was first seen, then keeps those **added within the
-   last 7 days** (a rolling window, independent of how often it refreshes). Two
-   things are tracked independently:
-   - **Markets** — the event cards you browse on Polymarket.
-   - **Sub-markets** — the individual outcome markets inside each event.
-3. Applies the highlight rule to **each section separately**: any item with
-   **volume &gt; $3,000** is highlighted in yellow and sorted to the top; the
-   rest follow by volume. (Set `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.)
-4. Renders a self-contained HTML report (`public/index.html`) with two sections
-   — _Newly added markets_ and _Newly added sub-markets_ — plus a
+   last 7 days** (a rolling window, independent of how often it refreshes).
+3. Splits them into two areas so the newest stand out, **without duplication**:
+   - **🆕 Just added — last 2 days** (top, highlighted area).
+   - **🗓️ Added 2–7 days ago** (below).
+   Each area is broken into **Markets** (the event cards you browse on
+   Polymarket) and **Sub-markets** (the individual outcome markets inside each
+   event).
+4. Applies the highlight rule within **every group**: any item with **volume
+   &gt; $3,000** is highlighted in yellow and sorted to the top; the rest follow
+   by volume. (Set `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.)
+5. Renders a self-contained HTML report (`public/index.html`) plus a
    machine-readable `public/data.json`.
 
 ### The "Update now" button
@@ -104,6 +107,7 @@ Everything is configurable via environment variables (defaults match the task):
 | `VOLUME_THRESHOLD`        | `3000`                              | Highlight/pin markets with volume above this   |
 | `SCHEDULE_HOURS`          | `6`                                 | Refresh cadence in hours                       |
 | `WINDOW_DAYS`             | `7`                                 | Rolling window: list markets added in last N days |
+| `FRESH_DAYS`              | `2`                                 | Markets newer than this go in the top "Just added" area |
 | `SHOW_ONLY_HIGHLIGHTED`   | `false`                             | If `true`, list only markets over the threshold |
 | `MAX_EVENTS`              | `1000`                              | Max events fetched per refresh                 |
 | `OUTPUT_DIR`              | `public`                            | Where the report is written                    |

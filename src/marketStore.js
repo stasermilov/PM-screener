@@ -113,6 +113,25 @@ export function selectWithinWindow(items, opts = {}) {
 }
 
 /**
+ * Split already-windowed items into a "fresh" group (added within freshDays)
+ * and an "earlier" group (the rest). Disjoint by construction, so nothing is
+ * shown twice. Pure.
+ */
+export function partitionByFreshness(items, opts = {}) {
+  const now = opts.now instanceof Date ? opts.now : new Date();
+  const freshMs = (opts.freshDays ?? 2) * 86400 * 1000;
+  const cutoff = now.getTime() - freshMs;
+  const fresh = [];
+  const earlier = [];
+  for (const m of items || []) {
+    const t = addedAt(m);
+    if (Number.isFinite(t) && t >= cutoff) fresh.push(m);
+    else earlier.push(m);
+  }
+  return { fresh, earlier };
+}
+
+/**
  * Reconcile events and sub-markets against their own seen maps and return one
  * next state carrying both. Attaches the annotated item lists for the caller to
  * window-filter.

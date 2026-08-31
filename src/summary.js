@@ -43,28 +43,61 @@ export function buildSection(items, { threshold = 3000, totalTracked = null } = 
 }
 
 /**
- * Build the full summary model with both sections.
+ * Build the full summary model. Items are already split by the caller into a
+ * "fresh" bucket (added within freshDays) and an "earlier" bucket (the rest of
+ * the window); each bucket has an events group and a sub-markets group.
  *
  * @param {object} input
- * @param {object[]} input.events        newly added event-level markets
- * @param {object[]} input.submarkets    newly added individual sub-markets
+ * @param {object[]} input.freshEvents       events added within freshDays
+ * @param {object[]} input.earlierEvents      events added earlier in the window
+ * @param {object[]} input.freshSubmarkets    sub-markets added within freshDays
+ * @param {object[]} input.earlierSubmarkets  sub-markets added earlier
  * @param {object} opts
  */
-export function buildSummary({ events = [], submarkets = [] }, opts = {}) {
+export function buildSummary(input = {}, opts = {}) {
+  const {
+    freshEvents = [],
+    earlierEvents = [],
+    freshSubmarkets = [],
+    earlierSubmarkets = [],
+  } = input;
   const threshold = opts.threshold ?? 3000;
   const generatedAt = opts.generatedAt instanceof Date ? opts.generatedAt : new Date();
+
+  const fresh = {
+    events: buildSection(freshEvents, { threshold }),
+    submarkets: buildSection(freshSubmarkets, { threshold }),
+  };
+  const earlier = {
+    events: buildSection(earlierEvents, { threshold }),
+    submarkets: buildSection(earlierSubmarkets, { threshold }),
+  };
+
+  const count = (bucket) => bucket.events.stats.newCount + bucket.submarkets.stats.newCount;
+  const highlighted = (bucket) =>
+    bucket.events.stats.highlightedCount + bucket.submarkets.stats.highlightedCount;
 
   return {
     generatedAt: generatedAt.toISOString(),
     scheduleHours: opts.scheduleHours ?? 6,
     windowDays: opts.windowDays ?? 7,
+    freshDays: opts.freshDays ?? 2,
     showOnlyHighlighted: Boolean(opts.showOnlyHighlighted),
     threshold,
     tagSlug: opts.tagSlug ?? 'geopolitics',
-    isFirstRun: Boolean(opts.isFirstRun),
     previousRunAt: opts.previousRunAt ?? null,
     refreshUrl: opts.refreshUrl ?? '',
-    events: buildSection(events, { threshold, totalTracked: opts.eventsTracked ?? null }),
-    submarkets: buildSection(submarkets, { threshold, totalTracked: opts.submarketsTracked ?? null }),
+    tracked: {
+      events: opts.eventsTracked ?? null,
+      submarkets: opts.submarketsTracked ?? null,
+    },
+    totals: {
+      freshCount: count(fresh),
+      earlierCount: count(earlier),
+      windowCount: count(fresh) + count(earlier),
+      highlightedCount: highlighted(fresh) + highlighted(earlier),
+    },
+    fresh,
+    earlier,
   };
 }
