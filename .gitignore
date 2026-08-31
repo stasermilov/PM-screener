@@ -1,0 +1,18 @@
+node_modules/
+npm-debug.log*
+*.log
+
+# Local environment overrides
+.env
+.env.local
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated report output (regenerated on every run).
+# Keep the directory but ignore its build products so local runs don't
+# create noisy diffs. The GitHub Actions workflow force-adds these when it
+# publishes, so publishing still works.
+public/*.html
+public/*.json

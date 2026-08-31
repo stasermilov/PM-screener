@@ -1,0 +1,51 @@
+name: Geopolitics market summary
+
+# Regenerate the newly-added Polymarket Geopolitics summary every 6 hours.
+# The job fetches live data, diffs it against the committed state file to find
+# newly added markets, renders the HTML report, and commits the updated state
+# and output back so the next run has a baseline to diff against.
+
+on:
+  schedule:
+    - cron: '0 */6 * * *' # 00:00, 06:00, 12:00, 18:00 UTC
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+# Prevent overlapping runs from racing on the committed state file.
+concurrency:
+  group: geopolitics-summary
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No dependencies to install — the app uses only the Node standard library.
+      - name: Generate summary
+        run: npm run generate
+        env:
+          VOLUME_THRESHOLD: '3000'
+          SCHEDULE_HOURS: '6'
+
+      - name: Commit updated report and state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # public/* is gitignored for clean local runs; force-add for publishing.
+          git add -f public/index.html public/data.json data/state.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: update geopolitics summary [skip ci]"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi

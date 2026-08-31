@@ -1,0 +1,26 @@
+{
+  "name": "pm-screener",
+  "version": "1.0.0",
+  "description": "Summarizes newly added Polymarket Geopolitics markets every 6 hours, highlighting markets with over $3000 volume.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "pm-screener": "src/cli.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "generate": "node src/cli.js",
+    "test": "node --test"
+  },
+  "keywords": [
+    "polymarket",
+    "geopolitics",
+    "prediction-markets",
+    "gamma-api",
+    "screener"
+  ],
+  "license": "MIT",
+  "dependencies": {}
+}
