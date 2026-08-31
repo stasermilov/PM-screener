@@ -7,7 +7,7 @@ import path from 'node:path';
 
 import { config } from './config.js';
 import { fetchGeopoliticsMarkets } from './gammaClient.js';
-import { loadState, saveState, computeNewlyAdded } from './marketStore.js';
+import { loadState, saveState, computeNewlyAddedAll } from './marketStore.js';
 import { buildSummary } from './summary.js';
 import { renderHtml } from './render.js';
 
@@ -25,22 +25,28 @@ export async function refresh(deps = {}) {
   const state = await loadState(config.stateFile);
   const previousRunAt = state.lastRunAt;
 
-  const { markets, tagSlug } = await fetchMarkets();
+  const { markets, submarkets = [], tagSlug } = await fetchMarkets();
 
-  const { newlyAdded, nextState, isFirstRun } = computeNewlyAdded(state, markets, {
-    now,
-    firstRunLookbackHours: config.firstRunLookbackHours,
-  });
+  const { newlyAddedEvents, newlyAddedSubmarkets, nextState, isFirstRun } =
+    computeNewlyAddedAll(
+      state,
+      { events: markets, submarkets },
+      { now, firstRunLookbackHours: config.firstRunLookbackHours },
+    );
 
-  const summary = buildSummary(newlyAdded, {
-    threshold: config.volumeThreshold,
-    scheduleHours: config.scheduleHours,
-    generatedAt: now,
-    isFirstRun,
-    tagSlug: tagSlug || config.tagSlug,
-    totalTracked: markets.length,
-    previousRunAt,
-  });
+  const summary = buildSummary(
+    { events: newlyAddedEvents, submarkets: newlyAddedSubmarkets },
+    {
+      threshold: config.volumeThreshold,
+      scheduleHours: config.scheduleHours,
+      generatedAt: now,
+      isFirstRun,
+      tagSlug: tagSlug || config.tagSlug,
+      eventsTracked: markets.length,
+      submarketsTracked: submarkets.length,
+      previousRunAt,
+    },
+  );
 
   const html = renderHtml(summary, { now });
 

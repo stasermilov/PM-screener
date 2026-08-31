@@ -13,7 +13,13 @@ const STATE_VERSION = 1;
 const PRUNE_AFTER_DAYS = 45; // forget markets absent this long to bound file size
 
 function emptyState() {
-  return { version: STATE_VERSION, firstRunAt: null, lastRunAt: null, seen: {} };
+  return {
+    version: STATE_VERSION,
+    firstRunAt: null,
+    lastRunAt: null,
+    seen: {}, // event-level markets
+    seenSubmarkets: {}, // individual sub-markets
+  };
 }
 
 export async function loadState(stateFile) {
@@ -21,7 +27,12 @@ export async function loadState(stateFile) {
     const raw = await fs.readFile(stateFile, 'utf8');
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return emptyState();
-    return { ...emptyState(), ...parsed, seen: parsed.seen || {} };
+    return {
+      ...emptyState(),
+      ...parsed,
+      seen: parsed.seen || {},
+      seenSubmarkets: parsed.seenSubmarkets || {},
+    };
   } catch (err) {
     if (err.code === 'ENOENT') return emptyState();
     throw err;
@@ -34,29 +45,26 @@ export async function saveState(stateFile, state) {
 }
 
 /**
- * Pure diff: given prior state and the current market list, return the newly
- * added markets and the next state to persist. Does no I/O.
+ * Core pure diff over a single "seen" map. Given the prior seen map and the
+ * current items, return the newly added items, the advanced seen map, and
+ * whether this was a first run for that map. Does no I/O.
  *
- * @param {object} state              prior state (from loadState)
- * @param {object[]} markets          normalized markets from this fetch
- * @param {object} opts
- * @param {Date}   opts.now
- * @param {number} opts.firstRunLookbackHours
+ * Works for both events and sub-markets — items only need `id`, `createdAt`,
+ * and a display title (`title` or `question`).
  */
-export function computeNewlyAdded(state, markets, opts = {}) {
+export function diffAndAdvance(seen, items, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date();
   const nowIso = now.toISOString();
   const lookbackMs = (opts.firstRunLookbackHours ?? 6) * 3600 * 1000;
-  const seen = state.seen || {};
-  const isFirstRun = Object.keys(seen).length === 0;
+  const prior = seen || {};
+  const isFirstRun = Object.keys(prior).length === 0;
 
   const newlyAdded = [];
   const nextSeen = {};
 
-  for (const m of markets) {
-    const prior = seen[m.id];
-    const known = Boolean(prior);
-    const firstSeenAt = prior?.firstSeenAt || nowIso;
+  for (const m of items || []) {
+    const known = Boolean(prior[m.id]);
+    const firstSeenAt = prior[m.id]?.firstSeenAt || nowIso;
 
     if (!known) {
       const createdMs = m.createdAt ? new Date(m.createdAt).getTime() : NaN;
@@ -72,26 +80,64 @@ export function computeNewlyAdded(state, markets, opts = {}) {
     nextSeen[m.id] = {
       firstSeenAt,
       createdAt: m.createdAt || null,
-      title: m.title,
+      title: m.title || m.question || m.id,
       lastSeenAt: nowIso,
     };
   }
 
-  // Carry forward recently-seen markets that dropped off the current list, so a
-  // market briefly missing from the feed isn't re-flagged as new next time.
-  for (const [id, entry] of Object.entries(seen)) {
+  // Carry forward recently-seen items that dropped off the current list, so an
+  // item briefly missing from the feed isn't re-flagged as new next time.
+  for (const [id, entry] of Object.entries(prior)) {
     if (nextSeen[id]) continue;
     const ref = entry.lastSeenAt || entry.firstSeenAt || nowIso;
     const ageMs = now.getTime() - new Date(ref).getTime();
     if (ageMs <= PRUNE_AFTER_DAYS * 86400 * 1000) nextSeen[id] = entry;
   }
 
+  return { newlyAdded, nextSeen, isFirstRun };
+}
+
+/**
+ * Events-only diff. Kept for callers/tests that just track event-level markets.
+ * Returns the newly added markets plus the next state to persist.
+ */
+export function computeNewlyAdded(state, markets, opts = {}) {
+  const nowIso = (opts.now instanceof Date ? opts.now : new Date()).toISOString();
+  const { newlyAdded, nextSeen, isFirstRun } = diffAndAdvance(state.seen || {}, markets, opts);
   const nextState = {
     version: STATE_VERSION,
     firstRunAt: state.firstRunAt || nowIso,
     lastRunAt: nowIso,
     seen: nextSeen,
+    seenSubmarkets: state.seenSubmarkets || {},
+  };
+  return { newlyAdded, nextState, isFirstRun };
+}
+
+/**
+ * Diff both events and sub-markets in one pass, each against its own seen map,
+ * and return a single next state carrying both. Each map keeps an independent
+ * first-run notion, so upgrading an old state file (events only) seeds the
+ * sub-market baseline gracefully instead of dumping the whole catalogue.
+ */
+export function computeNewlyAddedAll(state, { events = [], submarkets = [] }, opts = {}) {
+  const nowIso = (opts.now instanceof Date ? opts.now : new Date()).toISOString();
+  const ev = diffAndAdvance(state.seen || {}, events, opts);
+  const sm = diffAndAdvance(state.seenSubmarkets || {}, submarkets, opts);
+
+  const nextState = {
+    version: STATE_VERSION,
+    firstRunAt: state.firstRunAt || nowIso,
+    lastRunAt: nowIso,
+    seen: ev.nextSeen,
+    seenSubmarkets: sm.nextSeen,
   };
 
-  return { newlyAdded, nextState, isFirstRun };
+  return {
+    newlyAddedEvents: ev.newlyAdded,
+    newlyAddedSubmarkets: sm.newlyAdded,
+    isFirstRun: ev.isFirstRun,
+    isFirstRunSubmarkets: sm.isFirstRun,
+    nextState,
+  };
 }

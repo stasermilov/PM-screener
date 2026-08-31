@@ -9,7 +9,7 @@
 // validated before use.
 
 import { config } from './config.js';
-import { normalizeEvents } from './normalize.js';
+import { normalizeEvents, normalizeSubmarkets } from './normalize.js';
 
 async function getJson(url) {
   const controller = new AbortController();
@@ -122,6 +122,7 @@ export async function fetchGeopoliticsMarkets() {
     tagId,
     tagSlug: slug,
     markets: normalizeEvents(raw),
+    submarkets: normalizeSubmarkets(raw),
     fetchedAt: new Date().toISOString(),
   };
 }

@@ -1,6 +1,7 @@
 // Render the summary data model into a self-contained HTML page.
-// Highlighted markets (volume over the threshold) get a yellow background and
-// a badge, and are already sorted to the top by buildSummary().
+// The report has two sections — event-level markets and individual sub-markets.
+// In both, items with volume over the threshold get a yellow background and a
+// badge, and are already sorted to the top by buildSummary().
 
 const HL_BG = '#fff8c4'; // yellow highlight for over-threshold markets
 
@@ -64,10 +65,18 @@ function renderTags(tags) {
     .join('')}</div>`;
 }
 
-function renderCard(m, now) {
-  const created = m.createdAt
-    ? `${formatDateTime(m.createdAt)} <span class="muted">(${relativeTime(m.createdAt, now)})</span>`
+function badge(threshold) {
+  return `<span class="badge">🔥 &gt; ${formatUsd(threshold)} volume</span>`;
+}
+
+function createdCell(iso, now) {
+  return iso
+    ? `${formatDateTime(iso)} <span class="muted">(${relativeTime(iso, now)})</span>`
     : '—';
+}
+
+/** Card for an event-level market. */
+function renderEventCard(m, now, threshold) {
   const meta = [
     m.endDate ? `Ends ${formatDateTime(m.endDate)}` : null,
     m.subMarketCount > 1 ? `${m.subMarketCount} sub-markets` : null,
@@ -79,44 +88,111 @@ function renderCard(m, now) {
           <h3 class="card-title">
             <a href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.title)}</a>
           </h3>
-          ${m.highlighted ? `<span class="badge">🔥 &gt; ${formatUsd(m.highlightThreshold)} volume</span>` : ''}
+          ${m.highlighted ? badge(threshold) : ''}
         </div>
         <div class="volume">${formatUsd(m.volume)}<span class="volume-label"> volume</span></div>
         ${m.description ? `<p class="desc">${escapeHtml(m.description)}</p>` : ''}
         ${renderTags(m.tags)}
         <dl class="facts">
           <div><dt>Liquidity</dt><dd>${formatUsd(m.liquidity)}</dd></div>
-          <div><dt>Created</dt><dd>${created}</dd></div>
+          <div><dt>Created</dt><dd>${createdCell(m.createdAt, now)}</dd></div>
           ${meta.map((x) => `<div><dt></dt><dd>${escapeHtml(x)}</dd></div>`).join('')}
         </dl>
       </article>`;
 }
 
-function emptyState(summary) {
-  const reason = summary.isFirstRun
-    ? 'This was the first run, so the screener recorded the current geopolitics markets as a baseline. New markets that appear from now on will show up here.'
-    : `No new geopolitics markets have appeared since the last check ${relativeTime(summary.previousRunAt) || 'recently'}.`;
-  return `<div class="empty">
-        <div class="empty-emoji">🌍</div>
-        <p>No newly added markets this cycle.</p>
-        <p class="muted">${escapeHtml(reason)}</p>
-      </div>`;
+function renderOutcomes(outcomes) {
+  if (!outcomes?.length) return '';
+  const parts = outcomes
+    .slice(0, 3)
+    .map((o) => `${escapeHtml(o.name)}${o.pct != null ? ` <b>${o.pct}%</b>` : ''}`)
+    .join(' · ');
+  return `<div class="outcomes">${parts}</div>`;
+}
+
+/** Card for an individual sub-market, linking back to its parent event. */
+function renderSubmarketCard(m, now, threshold) {
+  const parent = m.eventTitle
+    ? `<div class="parent">in <a href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.eventTitle)}</a></div>`
+    : '';
+
+  return `
+      <article class="card${m.highlighted ? ' highlight' : ''}">
+        <div class="card-head">
+          <h3 class="card-title">
+            <a href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.question)}</a>
+          </h3>
+          ${m.highlighted ? badge(threshold) : ''}
+        </div>
+        ${parent}
+        <div class="volume">${formatUsd(m.volume)}<span class="volume-label"> volume</span></div>
+        ${renderOutcomes(m.outcomes)}
+        <dl class="facts">
+          <div><dt>Liquidity</dt><dd>${formatUsd(m.liquidity)}</dd></div>
+          <div><dt>Created</dt><dd>${createdCell(m.createdAt, now)}</dd></div>
+          ${m.endDate ? `<div><dt></dt><dd>Ends ${formatDateTime(m.endDate)}</dd></div>` : ''}
+        </dl>
+      </article>`;
+}
+
+function renderStats(stats, threshold) {
+  return `<section class="stats">
+      <div class="stat"><div class="n">${stats.newCount}</div><div class="l">New</div></div>
+      <div class="stat"><div class="n">${stats.highlightedCount}</div><div class="l">Over ${formatUsd(threshold)}</div></div>
+      <div class="stat"><div class="n">${formatUsd(stats.topVolume)}</div><div class="l">Top volume</div></div>
+      <div class="stat"><div class="n">${formatUsd(stats.totalVolume)}</div><div class="l">Combined volume</div></div>
+    </section>`;
+}
+
+function renderSection({ section, title, noun, emoji, threshold, now, cardFn, emptyReason }) {
+  const tracked =
+    section.stats.totalTracked != null
+      ? `<span class="section-count">${section.stats.totalTracked} tracked</span>`
+      : '';
+  const body = section.items.length
+    ? section.items.map((m) => cardFn(m, now, threshold)).join('\n')
+    : `<div class="empty"><div class="empty-emoji">${emoji}</div><p>No newly added ${escapeHtml(noun)} this cycle.</p><p class="muted">${escapeHtml(emptyReason)}</p></div>`;
+
+  return `
+    <section class="report-section">
+      <h2 class="section-title">${emoji} ${escapeHtml(title)} ${tracked}</h2>
+      ${renderStats(section.stats, threshold)}
+      <div class="cards">
+${body}
+      </div>
+    </section>`;
 }
 
 /** Render the full HTML document for a summary. */
 export function renderHtml(summary, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date(summary.generatedAt);
-  const s = summary.stats;
   const threshold = summary.threshold;
-
-  // Attach the threshold to each market so the badge can display it.
-  const markets = summary.markets.map((m) => ({ ...m, highlightThreshold: threshold }));
-
-  const cards = markets.length
-    ? markets.map((m) => renderCard(m, now)).join('\n')
-    : emptyState(summary);
-
   const nextRun = nextRunIso(summary.generatedAt, summary.scheduleHours);
+  const previousNote = summary.isFirstRun
+    ? 'This was the first run, so the screener recorded the current geopolitics markets as a baseline. New items that appear from now on will show up here.'
+    : `Nothing new has appeared since the last check ${relativeTime(summary.previousRunAt, now) || 'recently'}.`;
+
+  const eventsSection = renderSection({
+    section: summary.events,
+    title: 'Newly added markets',
+    noun: 'markets',
+    emoji: '🗺️',
+    threshold,
+    now,
+    cardFn: renderEventCard,
+    emptyReason: previousNote,
+  });
+
+  const submarketsSection = renderSection({
+    section: summary.submarkets,
+    title: 'Newly added sub-markets',
+    noun: 'sub-markets',
+    emoji: '🎯',
+    threshold,
+    now,
+    cardFn: renderSubmarketCard,
+    emptyReason: previousNote,
+  });
 
   return `<!doctype html>
 <html lang="en">
@@ -148,16 +224,19 @@ export function renderHtml(summary, opts = {}) {
     .legend {
       display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
       color: var(--muted); background: var(--panel); border: 1px solid var(--border);
-      padding: 6px 12px; border-radius: 999px; margin-bottom: 20px;
+      padding: 6px 12px; border-radius: 999px; margin-bottom: 24px;
     }
     .swatch { width: 14px; height: 14px; border-radius: 3px; background: var(--hl-bg);
       border: 1px solid var(--hl-border); display: inline-block; }
-    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-      gap: 12px; margin-bottom: 24px; }
+    .report-section { margin-bottom: 36px; }
+    .section-title { font-size: 18px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 8px; }
+    .section-count { font-size: 12px; font-weight: 400; color: var(--muted); }
+    .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px; margin-bottom: 18px; }
     .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-      padding: 14px 16px; }
-    .stat .n { font-size: 22px; font-weight: 700; }
-    .stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      padding: 12px 14px; }
+    .stat .n { font-size: 20px; font-weight: 700; }
+    .stat .l { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; }
     .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
       padding: 16px 18px; margin-bottom: 14px; }
     .card.highlight { background: var(--hl-bg); border-color: var(--hl-border);
@@ -168,8 +247,13 @@ export function renderHtml(summary, opts = {}) {
     .card-title a:hover { color: var(--accent); text-decoration: underline; }
     .badge { flex: none; font-size: 12px; font-weight: 700; white-space: nowrap;
       background: var(--hl-border); color: #3a2f00; padding: 4px 10px; border-radius: 999px; }
+    .parent { font-size: 13px; color: var(--muted); margin: 2px 0 0; }
+    .parent a { color: var(--accent); text-decoration: none; }
+    .parent a:hover { text-decoration: underline; }
     .volume { font-size: 20px; font-weight: 700; margin: 8px 0 4px; }
     .volume-label { font-size: 13px; font-weight: 400; color: var(--muted); }
+    .outcomes { font-size: 13px; color: var(--muted); margin-bottom: 10px; }
+    .outcomes b { color: var(--text); }
     .desc { margin: 6px 0 10px; color: var(--muted); }
     .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
     .tag { font-size: 12px; background: var(--chip); color: var(--muted);
@@ -181,10 +265,10 @@ export function renderHtml(summary, opts = {}) {
     .facts dt:not(:empty)::after { content: ":"; }
     .facts dd { margin: 0; }
     .muted { color: var(--muted); }
-    .empty { text-align: center; padding: 48px 16px; background: var(--panel);
+    .empty { text-align: center; padding: 40px 16px; background: var(--panel);
       border: 1px dashed var(--border); border-radius: 14px; }
-    .empty-emoji { font-size: 40px; }
-    footer { margin-top: 32px; color: var(--muted); font-size: 12px; text-align: center; }
+    .empty-emoji { font-size: 36px; }
+    footer { margin-top: 8px; color: var(--muted); font-size: 12px; text-align: center; }
     footer a { color: var(--accent); }
   </style>
 </head>
@@ -201,24 +285,17 @@ export function renderHtml(summary, opts = {}) {
 
     <div class="legend">
       <span class="swatch"></span>
-      Highlighted &amp; pinned to top: markets with more than ${formatUsd(threshold)} volume
+      Highlighted &amp; pinned to top: over ${formatUsd(threshold)} volume
     </div>
 
-    <section class="stats">
-      <div class="stat"><div class="n">${s.newCount}</div><div class="l">New markets</div></div>
-      <div class="stat"><div class="n">${s.highlightedCount}</div><div class="l">Over ${formatUsd(threshold)}</div></div>
-      <div class="stat"><div class="n">${formatUsd(s.topVolume)}</div><div class="l">Top volume</div></div>
-      <div class="stat"><div class="n">${formatUsd(s.totalVolume)}</div><div class="l">Combined volume</div></div>
-    </section>
-
     <main>
-${cards}
+${eventsSection}
+${submarketsSection}
     </main>
 
     <footer>
       Data from the <a href="https://gamma-api.polymarket.com" target="_blank" rel="noopener noreferrer">Polymarket Gamma API</a>
       · tag <code>${escapeHtml(summary.tagSlug)}</code>
-      · ${s.totalTracked != null ? `${s.totalTracked} markets tracked` : ''}
       <br />Not affiliated with Polymarket. For informational purposes only.
     </footer>
   </div>

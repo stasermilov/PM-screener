@@ -48,7 +48,11 @@ export function startServer({ config, triggerRefresh, getStatus }) {
 
       if (pathname === '/run') {
         const summary = await triggerRefresh();
-        return sendJson(res, 200, { ok: true, stats: summary?.stats ?? null });
+        return sendJson(res, 200, {
+          ok: true,
+          events: summary?.events?.stats ?? null,
+          submarkets: summary?.submarkets?.stats ?? null,
+        });
       }
 
       if (pathname === '/data.json') {

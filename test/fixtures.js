@@ -15,7 +15,16 @@ export function rawEvents(nowIso = new Date().toISOString()) {
       active: true,
       closed: false,
       tags: [{ label: 'Geopolitics', slug: 'geopolitics' }, { label: 'Ukraine' }],
-      markets: [{ id: 11, volumeNum: 5000 }],
+      markets: [
+        {
+          id: 11,
+          question: 'Ceasefire signed before July 2026?',
+          volumeNum: 5000,
+          liquidityNum: 1200,
+          outcomes: '["Yes","No"]',
+          outcomePrices: '["0.62","0.38"]',
+        },
+      ],
     },
     {
       id: 2,
@@ -25,7 +34,7 @@ export function rawEvents(nowIso = new Date().toISOString()) {
       liquidity: 300,
       createdAt: nowIso,
       tags: [{ slug: 'geopolitics' }],
-      markets: [{ id: 21 }],
+      markets: [{ id: 21, question: 'A quiet sub-market?', volumeNum: 1200 }],
     },
     {
       id: 3,
@@ -42,7 +51,10 @@ export function rawEvents(nowIso = new Date().toISOString()) {
       // no event-level volume -> sum children
       createdAt: nowIso,
       tags: [{ slug: 'geopolitics' }],
-      markets: [{ volumeNum: 2000 }, { volume: '600' }],
+      markets: [
+        { id: 41, question: 'Child market A?', volumeNum: 2000 },
+        { id: 42, question: 'Child market B?', volume: '600' },
+      ],
     },
     {
       // XSS-ish content to verify escaping

@@ -113,3 +113,78 @@ export function normalizeEvents(events) {
   }
   return out;
 }
+
+/** Parse a Gamma JSON-encoded array field (e.g. '["Yes","No"]'), tolerantly. */
+export function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string' && value.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/** Pair each outcome with its price as a percentage, e.g. [{name:'Yes', pct:62}]. */
+function outcomePairs(rawMarket) {
+  const outcomes = parseJsonArray(rawMarket.outcomes);
+  const prices = parseJsonArray(rawMarket.outcomePrices).map((p) => toNumber(p));
+  return outcomes.map((name, i) => ({
+    name: String(name),
+    pct: Number.isFinite(prices[i]) ? Math.round(prices[i] * 100) : null,
+  }));
+}
+
+/**
+ * Normalize a single sub-market (one entry from an event's `markets` array)
+ * into the shape used for the "individual sub-markets" section, carrying a
+ * reference back to its parent event. Returns null if unusable.
+ */
+export function normalizeSubmarket(m, parent = {}) {
+  if (!m || (m.id === undefined && !m.conditionId && !m.question && !m.slug)) {
+    return null;
+  }
+
+  const id = String(pick(m, ['id', 'conditionId', 'slug']) ?? `${parent.id ?? ''}:${m.question ?? ''}`);
+  const question = pick(m, ['question', 'groupItemTitle', 'title']) || parent.title || 'Untitled sub-market';
+  const parentSlug = pick(parent, ['slug']) || '';
+  const url = parentSlug
+    ? POLYMARKET_EVENT_BASE + parentSlug
+    : (m.slug ? POLYMARKET_EVENT_BASE + m.slug : 'https://polymarket.com');
+
+  return {
+    id,
+    question,
+    eventId: parent.id !== undefined ? String(parent.id) : '',
+    eventTitle: pick(parent, ['title', 'question']) || '',
+    eventSlug: parentSlug,
+    url,
+    volume: Math.round(toNumber(pick(m, ['volumeNum', 'volume'])) * 100) / 100,
+    liquidity: Math.round(toNumber(pick(m, ['liquidityNum', 'liquidity'])) * 100) / 100,
+    createdAt: toIso(pick(m, ['createdAt', 'startDate']) ?? pick(parent, ['createdAt', 'startDate'])),
+    endDate: toIso(pick(m, ['endDate']) ?? pick(parent, ['endDate'])),
+    outcomes: outcomePairs(m),
+    active: Boolean(pick(m, ['active']) ?? true),
+    closed: Boolean(pick(m, ['closed']) ?? false),
+    tags: eventTags(parent),
+  };
+}
+
+/** Flatten and normalize every sub-market across the given raw events. */
+export function normalizeSubmarkets(events) {
+  const seen = new Set();
+  const out = [];
+  for (const ev of events || []) {
+    if (!Array.isArray(ev?.markets)) continue;
+    for (const m of ev.markets) {
+      const norm = normalizeSubmarket(m, ev);
+      if (!norm || seen.has(norm.id)) continue;
+      seen.add(norm.id);
+      out.push(norm);
+    }
+  }
+  return out;
+}

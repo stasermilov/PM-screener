@@ -11,11 +11,16 @@ Data comes from the public [Polymarket Gamma API](https://gamma-api.polymarket.c
 On each 6‑hour cycle the app:
 
 1. Fetches every open event under the `geopolitics` tag from the Gamma API.
-2. Diffs the fetched set against a saved state file to find markets that are
-   **newly added** since the previous run.
-3. Applies the highlight rule: any market with **volume &gt; $3,000** is marked and
-   sorted to the top; the rest follow by volume.
-4. Renders a self-contained HTML report (`public/index.html`) plus a
+2. Diffs the fetched set against a saved state file to find items that are
+   **newly added** since the previous run. Two things are tracked
+   independently:
+   - **Markets** — the event cards you browse on Polymarket.
+   - **Sub-markets** — the individual outcome markets inside each event.
+3. Applies the highlight rule to **each section separately**: any item with
+   **volume &gt; $3,000** is highlighted in yellow and sorted to the top; the
+   rest follow by volume.
+4. Renders a self-contained HTML report (`public/index.html`) with two sections
+   — _Newly added markets_ and _Newly added sub-markets_ — plus a
    machine-readable `public/data.json`.
 
 The first run has no prior state, so it records the current markets as a
@@ -93,9 +98,9 @@ Everything is configurable via environment variables (defaults match the task):
 src/
   config.js        env-driven configuration
   gammaClient.js   Gamma API client (tag resolution + paging)
-  normalize.js     raw event -> normalized market (pure)
-  marketStore.js   state persistence + newly-added diff
-  summary.js       highlight rule, sorting, stats (pure)
+  normalize.js     raw event -> normalized market + sub-markets (pure)
+  marketStore.js   state persistence + newly-added diff (events & sub-markets)
+  summary.js       highlight rule, sorting, per-section stats (pure)
   render.js        HTML report renderer (pure)
   refresh.js       one full cycle: fetch -> diff -> render -> persist
   scheduler.js     drift-safe 6-hour scheduler
@@ -119,7 +124,10 @@ the highlight-and-sort rule, HTML escaping, and the scheduler math.
 
 - The `>$3,000` threshold is **exclusive** (a market at exactly $3,000 is not
   highlighted), matching "over $3,000".
-- A Polymarket "market" card is a Gamma **event**; the app screens events and
-  uses each event's aggregate volume (falling back to summing child markets).
+- A Polymarket "market" card is a Gamma **event**; the _Newly added markets_
+  section screens events and uses each event's aggregate volume (falling back to
+  summing child markets). The _Newly added sub-markets_ section screens the
+  individual markets inside those events and uses each one's own volume, so the
+  $3,000 rule is applied at both levels.
 - Not affiliated with Polymarket. For informational purposes only; not
   financial advice.

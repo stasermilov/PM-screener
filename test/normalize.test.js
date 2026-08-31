@@ -1,7 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { toNumber, toIso, eventVolume, normalizeEvent, normalizeEvents } from '../src/normalize.js';
+import {
+  toNumber,
+  toIso,
+  eventVolume,
+  normalizeEvent,
+  normalizeEvents,
+  parseJsonArray,
+  normalizeSubmarket,
+  normalizeSubmarkets,
+} from '../src/normalize.js';
 import { rawEvents } from './fixtures.js';
 
 test('toNumber coerces numbers, strings, and junk', () => {
@@ -44,4 +53,36 @@ test('normalizeEvents de-dupes and drops unusable entries', () => {
   const ids = out.map((m) => m.id);
   assert.equal(new Set(ids).size, ids.length); // unique
   assert.equal(out.length, 5); // 5 valid fixtures, dupe + junk removed
+});
+
+test('parseJsonArray tolerates strings, arrays, and junk', () => {
+  assert.deepEqual(parseJsonArray('["Yes","No"]'), ['Yes', 'No']);
+  assert.deepEqual(parseJsonArray(['a', 'b']), ['a', 'b']);
+  assert.deepEqual(parseJsonArray('not json'), []);
+  assert.deepEqual(parseJsonArray(undefined), []);
+});
+
+test('normalizeSubmarket carries parent context and parses outcomes', () => {
+  const parent = rawEvents()[0];
+  const sub = normalizeSubmarket(parent.markets[0], parent);
+  assert.equal(sub.id, '11');
+  assert.equal(sub.question, 'Ceasefire signed before July 2026?');
+  assert.equal(sub.eventId, '1');
+  assert.equal(sub.eventTitle, 'Ukraine ceasefire in 2026?');
+  assert.equal(sub.url, 'https://polymarket.com/event/ukraine-ceasefire-2026');
+  assert.equal(sub.volume, 5000);
+  assert.deepEqual(sub.outcomes, [
+    { name: 'Yes', pct: 62 },
+    { name: 'No', pct: 38 },
+  ]);
+  // Sub-markets inherit the parent's createdAt when they have none of their own.
+  assert.equal(sub.createdAt, parent.createdAt);
+});
+
+test('normalizeSubmarkets flattens every child market across events', () => {
+  const subs = normalizeSubmarkets(rawEvents());
+  // events 1,2,4 contribute 1 + 1 + 2 = 4 sub-markets; events 3 and 5 have none.
+  assert.deepEqual(subs.map((s) => s.id).sort(), ['11', '21', '41', '42']);
+  const summed = subs.find((s) => s.id === '42');
+  assert.equal(summed.volume, 600);
 });

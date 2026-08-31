@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeNewlyAdded } from '../src/marketStore.js';
-import { normalizeEvents } from '../src/normalize.js';
+import { computeNewlyAdded, computeNewlyAddedAll } from '../src/marketStore.js';
+import { normalizeEvents, normalizeSubmarkets } from '../src/normalize.js';
 import { rawEvents } from './fixtures.js';
 
 function emptyState() {
@@ -51,6 +51,47 @@ test('subsequent run flags any unseen market as newly added', () => {
   assert.equal(isFirstRun, false);
   // Even though createdAt is old, it's unseen -> new. Nothing else re-flagged.
   assert.deepEqual(newlyAdded.map((m) => m.id), ['99']);
+});
+
+test('computeNewlyAddedAll diffs events and sub-markets independently', () => {
+  const now = new Date('2026-08-31T12:00:00Z');
+  const raw = rawEvents(now.toISOString());
+  const events = normalizeEvents(raw);
+  const submarkets = normalizeSubmarkets(raw);
+
+  // First run seeds both baselines from the lookback window.
+  const first = computeNewlyAddedAll(
+    emptyState(),
+    { events, submarkets },
+    { now, firstRunLookbackHours: 6 },
+  );
+  assert.equal(first.isFirstRun, true);
+  assert.equal(Object.keys(first.nextState.seen).length, events.length);
+  assert.equal(Object.keys(first.nextState.seenSubmarkets).length, submarkets.length);
+
+  // Next cycle: add a brand new event carrying a brand new sub-market.
+  const later = new Date('2026-08-31T18:00:00Z');
+  const raw2 = [
+    ...raw,
+    {
+      id: 77,
+      slug: 'fresh-event',
+      title: 'A fresh event',
+      volume: 4200,
+      createdAt: later.toISOString(),
+      tags: [{ slug: 'geopolitics' }],
+      markets: [{ id: 771, question: 'Fresh sub-market?', volumeNum: 4200 }],
+    },
+  ];
+  const second = computeNewlyAddedAll(
+    first.nextState,
+    { events: normalizeEvents(raw2), submarkets: normalizeSubmarkets(raw2) },
+    { now: later, firstRunLookbackHours: 6 },
+  );
+
+  assert.equal(second.isFirstRun, false);
+  assert.deepEqual(second.newlyAddedEvents.map((m) => m.id), ['77']);
+  assert.deepEqual(second.newlyAddedSubmarkets.map((m) => m.id), ['771']);
 });
 
 test('firstSeenAt is preserved for markets already known', () => {
