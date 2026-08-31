@@ -10,9 +10,8 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
-# Generated report output (regenerated on every run).
-# Keep the directory but ignore its build products so local runs don't
-# create noisy diffs. The GitHub Actions workflow force-adds these when it
-# publishes, so publishing still works.
+# Generated report output (regenerated on every run). Ignored so local runs
+# don't create noisy diffs. In CI the report is published straight to GitHub
+# Pages from this folder (never committed); only data/state.json is committed.
 public/*.html
 public/*.json

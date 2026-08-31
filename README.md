@@ -56,18 +56,27 @@ npm start
 
 Two supported ways to hit the 6‑hour cadence:
 
-### 1. GitHub Actions (serverless, no host to run)
+### 1. GitHub Actions + GitHub Pages (recommended — no computer to keep on)
 
-`.github/workflows/geopolitics-summary.yml` runs on a `cron` of `0 */6 * * *`.
-Each run regenerates the report and commits the updated `public/` output and
-`data/state.json` back to the branch (so the next run can diff against it).
-You can also trigger it manually from the **Actions** tab (_workflow_dispatch_).
+`.github/workflows/geopolitics-summary.yml` runs on a `cron` of `0 */6 * * *`,
+entirely on GitHub's servers. Each run regenerates the report, **publishes it to
+GitHub Pages**, and commits the small `data/state.json` back so the next run can
+tell what's newly added. You can also trigger it on demand from the **Actions**
+tab (_Run workflow_).
 
-To publish the report as a web page, enable **GitHub Pages** for the branch and
-point it at the `/public` folder — GitHub then serves `public/index.html`.
+**One-time setup:**
 
-> Note: scheduled workflows run from the repository's **default branch**, so
-> merge this workflow to your default branch for the cron to fire.
+1. In your repo, open **Settings → Pages**. Under **Build and deployment →
+   Source**, choose **GitHub Actions**.
+2. Open the **Actions** tab, select **Geopolitics market summary**, and click
+   **Run workflow** to publish immediately (otherwise it waits for the next
+   6‑hour slot).
+3. Your report is then live at
+   `https://<your-username>.github.io/<your-repo>/` — bookmark it on your phone.
+
+> Notes: scheduled workflows run from the repository's **default branch**, so
+> keep this workflow on your default branch. GitHub Pages is free for **public**
+> repositories; for private repos it needs a paid GitHub plan.
 
 ### 2. Long-running server (`npm start`)
 

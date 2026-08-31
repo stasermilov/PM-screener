@@ -1,26 +1,32 @@
 name: Geopolitics market summary
 
-# Regenerate the newly-added Polymarket Geopolitics summary every 6 hours.
-# The job fetches live data, diffs it against the committed state file to find
-# newly added markets, renders the HTML report, and commits the updated state
-# and output back so the next run has a baseline to diff against.
+# Regenerate the newly-added Polymarket Geopolitics summary every 6 hours and
+# publish it to GitHub Pages. The job runs entirely on GitHub's servers, so no
+# computer of yours needs to stay on. The report is viewable in any browser,
+# including on a phone, at your Pages URL:
+#   https://<your-username>.github.io/<your-repo>/
 
 on:
   schedule:
     - cron: '0 */6 * * *' # 00:00, 06:00, 12:00, 18:00 UTC
-  workflow_dispatch: {} # allow manual runs from the Actions tab
+  workflow_dispatch: {} # lets you run it on demand from the Actions tab
 
-# Prevent overlapping runs from racing on the committed state file.
+# Don't let two runs race on the committed state file / Pages deploy.
 concurrency:
   group: geopolitics-summary
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: write # to commit the small state file back
+  pages: write # to publish to GitHub Pages
+  id-token: write # required by the Pages deploy action
 
 jobs:
-  generate:
+  build-and-publish:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,15 +43,25 @@ jobs:
           VOLUME_THRESHOLD: '3000'
           SCHEDULE_HOURS: '6'
 
-      - name: Commit updated report and state
+      # Persist ONLY the small state file so the next run can tell which markets
+      # are newly added. The HTML report is published via Pages, not committed.
+      - name: Persist screener state
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # public/* is gitignored for clean local runs; force-add for publishing.
-          git add -f public/index.html public/data.json data/state.json
+          git add data/state.json
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "No state change to commit."
           else
-            git commit -m "chore: update geopolitics summary [skip ci]"
+            git commit -m "chore: update screener state [skip ci]"
             git push origin HEAD:${GITHUB_REF_NAME}
           fi
+
+      - name: Upload report as Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
