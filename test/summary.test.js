@@ -90,3 +90,23 @@ test('renderHtml shows an empty state when a section has no new items', () => {
   assert.ok(html.includes('No newly added markets'));
   assert.ok(html.includes('No newly added sub-markets'));
 });
+
+test('renderHtml includes the Update button, window wording, and refresh URL', () => {
+  const summary = buildSummary(
+    { events: [], submarkets: [] },
+    {
+      threshold: 3000,
+      windowDays: 7,
+      generatedAt: new Date('2026-08-31T12:00:00Z'),
+      refreshUrl: 'https://github.com/o/r/actions/workflows/geopolitics-summary.yml',
+    },
+  );
+  const html = renderHtml(summary);
+  assert.ok(html.includes('id="update-btn"'), 'has the Update button');
+  assert.ok(html.includes('Update now'));
+  assert.ok(html.includes('last 7 days'), 'header states the window');
+  assert.ok(
+    html.includes('https://github.com/o/r/actions/workflows/geopolitics-summary.yml'),
+    'embeds the workflow URL for the Pages fallback',
+  );
+});

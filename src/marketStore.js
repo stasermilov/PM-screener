@@ -45,38 +45,25 @@ export async function saveState(stateFile, state) {
 }
 
 /**
- * Core pure diff over a single "seen" map. Given the prior seen map and the
- * current items, return the newly added items, the advanced seen map, and
- * whether this was a first run for that map. Does no I/O.
+ * Reconcile a single "seen" map with the current items. Annotates every item
+ * with a stable `firstSeenAt` (when the screener first observed it), and returns
+ * the advanced seen map (current items refreshed, absent ones carried forward
+ * until they age out). Pure — does no I/O.
  *
  * Works for both events and sub-markets — items only need `id`, `createdAt`,
  * and a display title (`title` or `question`).
  */
-export function diffAndAdvance(seen, items, opts = {}) {
+export function reconcileSeen(seen, items, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date();
   const nowIso = now.toISOString();
-  const lookbackMs = (opts.firstRunLookbackHours ?? 6) * 3600 * 1000;
   const prior = seen || {};
-  const isFirstRun = Object.keys(prior).length === 0;
 
-  const newlyAdded = [];
+  const annotated = [];
   const nextSeen = {};
 
   for (const m of items || []) {
-    const known = Boolean(prior[m.id]);
     const firstSeenAt = prior[m.id]?.firstSeenAt || nowIso;
-
-    if (!known) {
-      const createdMs = m.createdAt ? new Date(m.createdAt).getTime() : NaN;
-      const withinLookback =
-        Number.isFinite(createdMs) && now.getTime() - createdMs <= lookbackMs;
-      // First run: only flag genuinely recent creations as "new".
-      // Later runs: anything unseen is new by definition.
-      if (!isFirstRun || withinLookback) {
-        newlyAdded.push({ ...m, firstSeenAt });
-      }
-    }
-
+    annotated.push({ ...m, firstSeenAt });
     nextSeen[m.id] = {
       firstSeenAt,
       createdAt: m.createdAt || null,
@@ -85,8 +72,8 @@ export function diffAndAdvance(seen, items, opts = {}) {
     };
   }
 
-  // Carry forward recently-seen items that dropped off the current list, so an
-  // item briefly missing from the feed isn't re-flagged as new next time.
+  // Carry forward recently-seen items that dropped off the current list so a
+  // stable firstSeenAt survives brief disappearances, until they age out.
   for (const [id, entry] of Object.entries(prior)) {
     if (nextSeen[id]) continue;
     const ref = entry.lastSeenAt || entry.firstSeenAt || nowIso;
@@ -94,36 +81,46 @@ export function diffAndAdvance(seen, items, opts = {}) {
     if (ageMs <= PRUNE_AFTER_DAYS * 86400 * 1000) nextSeen[id] = entry;
   }
 
-  return { newlyAdded, nextSeen, isFirstRun };
+  return { items: annotated, nextSeen };
+}
+
+/** The time a market is considered "added": its Gamma createdAt, else when the
+ *  screener first saw it. */
+export function addedAt(item) {
+  const created = item.createdAt ? new Date(item.createdAt).getTime() : NaN;
+  if (Number.isFinite(created)) return created;
+  const seen = item.firstSeenAt ? new Date(item.firstSeenAt).getTime() : NaN;
+  return Number.isFinite(seen) ? seen : NaN;
 }
 
 /**
- * Events-only diff. Kept for callers/tests that just track event-level markets.
- * Returns the newly added markets plus the next state to persist.
+ * Select the items added within the rolling window (in days), optionally
+ * restricting to those over the volume threshold. Pure.
  */
-export function computeNewlyAdded(state, markets, opts = {}) {
-  const nowIso = (opts.now instanceof Date ? opts.now : new Date()).toISOString();
-  const { newlyAdded, nextSeen, isFirstRun } = diffAndAdvance(state.seen || {}, markets, opts);
-  const nextState = {
-    version: STATE_VERSION,
-    firstRunAt: state.firstRunAt || nowIso,
-    lastRunAt: nowIso,
-    seen: nextSeen,
-    seenSubmarkets: state.seenSubmarkets || {},
-  };
-  return { newlyAdded, nextState, isFirstRun };
+export function selectWithinWindow(items, opts = {}) {
+  const now = opts.now instanceof Date ? opts.now : new Date();
+  const windowMs = (opts.windowDays ?? 7) * 86400 * 1000;
+  const cutoff = now.getTime() - windowMs;
+  const threshold = opts.threshold ?? 3000;
+  const onlyOver = Boolean(opts.showOnlyHighlighted);
+
+  return (items || []).filter((m) => {
+    const t = addedAt(m);
+    if (!Number.isFinite(t) || t < cutoff) return false;
+    if (onlyOver && !(Number(m.volume) > threshold)) return false;
+    return true;
+  });
 }
 
 /**
- * Diff both events and sub-markets in one pass, each against its own seen map,
- * and return a single next state carrying both. Each map keeps an independent
- * first-run notion, so upgrading an old state file (events only) seeds the
- * sub-market baseline gracefully instead of dumping the whole catalogue.
+ * Reconcile events and sub-markets against their own seen maps and return one
+ * next state carrying both. Attaches the annotated item lists for the caller to
+ * window-filter.
  */
-export function computeNewlyAddedAll(state, { events = [], submarkets = [] }, opts = {}) {
+export function reconcileAll(state, { events = [], submarkets = [] }, opts = {}) {
   const nowIso = (opts.now instanceof Date ? opts.now : new Date()).toISOString();
-  const ev = diffAndAdvance(state.seen || {}, events, opts);
-  const sm = diffAndAdvance(state.seenSubmarkets || {}, submarkets, opts);
+  const ev = reconcileSeen(state.seen || {}, events, opts);
+  const sm = reconcileSeen(state.seenSubmarkets || {}, submarkets, opts);
 
   const nextState = {
     version: STATE_VERSION,
@@ -133,11 +130,5 @@ export function computeNewlyAddedAll(state, { events = [], submarkets = [] }, op
     seenSubmarkets: sm.nextSeen,
   };
 
-  return {
-    newlyAddedEvents: ev.newlyAdded,
-    newlyAddedSubmarkets: sm.newlyAdded,
-    isFirstRun: ev.isFirstRun,
-    isFirstRunSubmarkets: sm.isFirstRun,
-    nextState,
-  };
+  return { events: ev.items, submarkets: sm.items, nextState };
 }

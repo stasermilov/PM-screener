@@ -1,31 +1,40 @@
 # PM Screener — Polymarket Geopolitics new-market summary
 
-An app that summarizes **newly added markets under the _Geopolitics_ category on
-Polymarket**, refreshed **every 6 hours**. Markets with **over $3,000 volume are
-highlighted in yellow and pinned to the top** of the list.
+An app that summarizes **markets added under the _Geopolitics_ category on
+Polymarket in the last 7 days**, refreshed **every 6 hours** (and on demand via
+an **Update** button). Markets with **over $3,000 volume are highlighted in
+yellow and pinned to the top** of the list.
 
 Data comes from the public [Polymarket Gamma API](https://gamma-api.polymarket.com).
 
 ## What it does
 
-On each 6‑hour cycle the app:
+On each cycle (and whenever you press **Update now**) the app:
 
 1. Fetches every open event under the `geopolitics` tag from the Gamma API.
-2. Diffs the fetched set against a saved state file to find items that are
-   **newly added** since the previous run. Two things are tracked
-   independently:
+2. Records when each market was first seen, then keeps those **added within the
+   last 7 days** (a rolling window, independent of how often it refreshes). Two
+   things are tracked independently:
    - **Markets** — the event cards you browse on Polymarket.
    - **Sub-markets** — the individual outcome markets inside each event.
 3. Applies the highlight rule to **each section separately**: any item with
    **volume &gt; $3,000** is highlighted in yellow and sorted to the top; the
-   rest follow by volume.
+   rest follow by volume. (Set `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.)
 4. Renders a self-contained HTML report (`public/index.html`) with two sections
    — _Newly added markets_ and _Newly added sub-markets_ — plus a
    machine-readable `public/data.json`.
 
-The first run has no prior state, so it records the current markets as a
-baseline and only reports those created within the last few hours. Every run
-after that reports a true diff.
+### The "Update now" button
+
+The report has an **Update now** button so you don't have to wait for the next
+6‑hour refresh:
+
+- **Server mode** (`npm start`, or any always-on host): the button refreshes the
+  data in place and reloads the page.
+- **Static hosting** (GitHub Pages): a static page can't regenerate its own data,
+  so the button instead links you to **Run** the GitHub Actions workflow, which
+  regenerates and republishes the page in about a minute. The link target is
+  filled in automatically in CI (from `GITHUB_REPOSITORY`).
 
 ## Requirements
 
@@ -49,7 +58,7 @@ npm start
 | ------------ | ----------------------------------------------------- |
 | `/`          | The latest HTML report                                |
 | `/data.json` | The latest summary as JSON                            |
-| `/run`       | Trigger a refresh on demand                            |
+| `/run`       | Trigger a refresh on demand (used by the Update button) |
 | `/healthz`   | Status: last run time, last error, config, last stats |
 
 ## Run automatically every 6 hours
@@ -94,10 +103,12 @@ Everything is configurable via environment variables (defaults match the task):
 | `GEO_TAG_SLUG`            | `geopolitics`                       | Polymarket tag to screen                       |
 | `VOLUME_THRESHOLD`        | `3000`                              | Highlight/pin markets with volume above this   |
 | `SCHEDULE_HOURS`          | `6`                                 | Refresh cadence in hours                       |
-| `FIRST_RUN_LOOKBACK_HOURS`| `6`                                 | First-run "new" window (see above)             |
+| `WINDOW_DAYS`             | `7`                                 | Rolling window: list markets added in last N days |
+| `SHOW_ONLY_HIGHLIGHTED`   | `false`                             | If `true`, list only markets over the threshold |
 | `MAX_EVENTS`              | `1000`                              | Max events fetched per refresh                 |
 | `OUTPUT_DIR`              | `public`                            | Where the report is written                    |
-| `STATE_FILE`              | `data/state.json`                   | Where seen-market state is persisted           |
+| `STATE_FILE`              | `data/state.json`                   | Where first-seen state is persisted            |
+| `WORKFLOW_URL`            | _(auto in CI)_                      | GitHub Actions URL the Update button links to on Pages |
 | `PORT` / `HOST`           | `3000` / `0.0.0.0`                  | Server bind address                            |
 | `RUN_ON_START`            | `true`                              | Run one refresh immediately on server start    |
 
@@ -108,16 +119,16 @@ src/
   config.js        env-driven configuration
   gammaClient.js   Gamma API client (tag resolution + paging)
   normalize.js     raw event -> normalized market + sub-markets (pure)
-  marketStore.js   state persistence + newly-added diff (events & sub-markets)
+  marketStore.js   first-seen state + rolling-window selection (pure)
   summary.js       highlight rule, sorting, per-section stats (pure)
-  render.js        HTML report renderer (pure)
-  refresh.js       one full cycle: fetch -> diff -> render -> persist
+  render.js        HTML report renderer + Update button (pure)
+  refresh.js       one full cycle: fetch -> select -> render -> persist
   scheduler.js     drift-safe 6-hour scheduler
-  server.js        zero-dep HTTP server
+  server.js        zero-dep HTTP server (serves report, /run refresh)
   cli.js           one-shot entrypoint (npm run generate)
   index.js         server mode entrypoint (npm start)
 test/              node:test unit tests + fixtures
-.github/workflows/ 6-hourly scheduled run
+.github/workflows/ 6-hourly scheduled run + Pages publish
 ```
 
 ## Tests
@@ -126,8 +137,9 @@ test/              node:test unit tests + fixtures
 npm test
 ```
 
-Covers volume/date coercion, the newly-added diff (first run vs. later runs),
-the highlight-and-sort rule, HTML escaping, and the scheduler math.
+Covers volume/date coercion, sub-market flattening, the first-seen reconcile,
+the 7-day window selection, the highlight-and-sort rule, HTML escaping, the
+Update button/URL, and the scheduler math.
 
 ## Notes & disclaimer
 

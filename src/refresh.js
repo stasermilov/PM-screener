@@ -1,13 +1,13 @@
-// One full refresh cycle: fetch geopolitics markets, diff against saved state
-// to find newly added ones, build the summary, render the HTML report, and
-// persist both the output and the updated state.
+// One full refresh cycle: fetch geopolitics markets, reconcile against saved
+// state, select the markets added within the rolling window, build the summary,
+// render the HTML report, and persist both the output and the updated state.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { config } from './config.js';
 import { fetchGeopoliticsMarkets } from './gammaClient.js';
-import { loadState, saveState, computeNewlyAddedAll } from './marketStore.js';
+import { loadState, saveState, reconcileAll, selectWithinWindow } from './marketStore.js';
 import { buildSummary } from './summary.js';
 import { renderHtml } from './render.js';
 
@@ -27,24 +27,33 @@ export async function refresh(deps = {}) {
 
   const { markets, submarkets = [], tagSlug } = await fetchMarkets();
 
-  const { newlyAddedEvents, newlyAddedSubmarkets, nextState, isFirstRun } =
-    computeNewlyAddedAll(
-      state,
-      { events: markets, submarkets },
-      { now, firstRunLookbackHours: config.firstRunLookbackHours },
-    );
+  // Record when each market was first seen (stable timestamp), then keep only
+  // those added within the rolling window that meet the criteria.
+  const reconciled = reconcileAll(state, { events: markets, submarkets }, { now });
+  const nextState = reconciled.nextState;
+
+  const windowOpts = {
+    now,
+    windowDays: config.windowDays,
+    threshold: config.volumeThreshold,
+    showOnlyHighlighted: config.showOnlyHighlighted,
+  };
+  const recentEvents = selectWithinWindow(reconciled.events, windowOpts);
+  const recentSubmarkets = selectWithinWindow(reconciled.submarkets, windowOpts);
 
   const summary = buildSummary(
-    { events: newlyAddedEvents, submarkets: newlyAddedSubmarkets },
+    { events: recentEvents, submarkets: recentSubmarkets },
     {
       threshold: config.volumeThreshold,
       scheduleHours: config.scheduleHours,
+      windowDays: config.windowDays,
+      showOnlyHighlighted: config.showOnlyHighlighted,
       generatedAt: now,
-      isFirstRun,
       tagSlug: tagSlug || config.tagSlug,
       eventsTracked: markets.length,
       submarketsTracked: submarkets.length,
       previousRunAt,
+      refreshUrl: config.workflowUrl,
     },
   );
 

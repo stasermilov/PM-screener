@@ -12,10 +12,11 @@ async function main() {
     const { summary, htmlPath, dataPath } = await refresh();
     const ev = summary.events.stats;
     const sm = summary.submarkets.stats;
+    const win = `last ${config.windowDays}d`;
     console.log(
       `[pm-screener] done in ${Date.now() - startedAt}ms\n` +
-        `  markets:     ${ev.newCount} new, ${ev.highlightedCount} over ${config.volumeThreshold} (tracked ${ev.totalTracked})\n` +
-        `  sub-markets: ${sm.newCount} new, ${sm.highlightedCount} over ${config.volumeThreshold} (tracked ${sm.totalTracked})`,
+        `  markets:     ${ev.newCount} added (${win}), ${ev.highlightedCount} over ${config.volumeThreshold} (tracked ${ev.totalTracked})\n` +
+        `  sub-markets: ${sm.newCount} added (${win}), ${sm.highlightedCount} over ${config.volumeThreshold} (tracked ${sm.totalTracked})`,
     );
     console.log(`[pm-screener] wrote ${htmlPath}`);
     console.log(`[pm-screener] wrote ${dataPath}`);

@@ -42,6 +42,9 @@ jobs:
         env:
           VOLUME_THRESHOLD: '3000'
           SCHEDULE_HOURS: '6'
+          WINDOW_DAYS: '7'
+          # GITHUB_REPOSITORY is provided automatically; the Update button uses
+          # it to link back to this workflow from the published page.
 
       # Persist ONLY the small state file so the next run can tell which markets
       # are newly added. The HTML report is published via Pages, not committed.

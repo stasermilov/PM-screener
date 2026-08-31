@@ -45,10 +45,13 @@ export const config = {
   volumeThreshold: num('VOLUME_THRESHOLD', 3000),
   // How often the summary is regenerated, in hours.
   scheduleHours: num('SCHEDULE_HOURS', 6),
-  // On the very first run there is no prior state, so "newly added" is seeded
-  // from markets created within this many hours to avoid dumping the whole
-  // catalogue. Subsequent runs report a true diff against saved state.
-  firstRunLookbackHours: num('FIRST_RUN_LOOKBACK_HOURS', 6),
+  // The report lists markets added within this rolling window (in days),
+  // independent of how often it refreshes.
+  windowDays: num('WINDOW_DAYS', 7),
+  // When true, the list is restricted to markets over the volume threshold.
+  // Default false: show every market in the window and just highlight the big
+  // ones.
+  showOnlyHighlighted: str('SHOW_ONLY_HIGHLIGHTED', 'false') === 'true',
 
   // --- Output & persistence ---
   outputDir: resolvePath('OUTPUT_DIR', 'public'),
@@ -60,6 +63,21 @@ export const config = {
   // Run one refresh immediately on server startup instead of waiting for the
   // first scheduled tick.
   runOnStart: str('RUN_ON_START', 'true') !== 'false',
+
+  // --- Update button ---
+  // On the static GitHub Pages site the "Update now" button can't refresh data
+  // itself, so it falls back to launching this GitHub Actions workflow (which
+  // regenerates and republishes the page). Derived automatically inside CI from
+  // GitHub's built-in env vars; override with WORKFLOW_URL if needed.
+  workflowUrl: (() => {
+    const explicit = str('WORKFLOW_URL', '');
+    if (explicit) return explicit;
+    const repo = process.env.GITHUB_REPOSITORY; // e.g. "owner/repo"
+    if (!repo) return '';
+    const server = str('GITHUB_SERVER_URL', 'https://github.com').replace(/\/+$/, '');
+    const file = str('WORKFLOW_FILE', 'geopolitics-summary.yml');
+    return `${server}/${repo}/actions/workflows/${file}`;
+  })(),
 };
 
 export const POLYMARKET_EVENT_BASE = 'https://polymarket.com/event/';

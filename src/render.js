@@ -137,7 +137,7 @@ function renderSubmarketCard(m, now, threshold) {
 
 function renderStats(stats, threshold) {
   return `<section class="stats">
-      <div class="stat"><div class="n">${stats.newCount}</div><div class="l">New</div></div>
+      <div class="stat"><div class="n">${stats.newCount}</div><div class="l">Added</div></div>
       <div class="stat"><div class="n">${stats.highlightedCount}</div><div class="l">Over ${formatUsd(threshold)}</div></div>
       <div class="stat"><div class="n">${formatUsd(stats.topVolume)}</div><div class="l">Top volume</div></div>
       <div class="stat"><div class="n">${formatUsd(stats.totalVolume)}</div><div class="l">Combined volume</div></div>
@@ -167,10 +167,13 @@ ${body}
 export function renderHtml(summary, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date(summary.generatedAt);
   const threshold = summary.threshold;
+  const windowDays = summary.windowDays ?? 7;
   const nextRun = nextRunIso(summary.generatedAt, summary.scheduleHours);
-  const previousNote = summary.isFirstRun
-    ? 'This was the first run, so the screener recorded the current geopolitics markets as a baseline. New items that appear from now on will show up here.'
-    : `Nothing new has appeared since the last check ${relativeTime(summary.previousRunAt, now) || 'recently'}.`;
+  const windowLabel = `${windowDays} ${windowDays === 1 ? 'day' : 'days'}`;
+  const criteriaNote = summary.showOnlyHighlighted
+    ? ` over ${formatUsd(threshold)} volume`
+    : '';
+  const previousNote = `No geopolitics markets${criteriaNote} were added to Polymarket in the last ${windowLabel}.`;
 
   const eventsSection = renderSection({
     section: summary.events,
@@ -228,6 +231,14 @@ export function renderHtml(summary, opts = {}) {
     }
     .swatch { width: 14px; height: 14px; border-radius: 3px; background: var(--hl-bg);
       border: 1px solid var(--hl-border); display: inline-block; }
+    .updatebar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+      margin-bottom: 20px; }
+    .update-btn { font: inherit; font-weight: 600; cursor: pointer; color: #fff;
+      background: var(--accent); border: none; padding: 9px 16px; border-radius: 10px; }
+    .update-btn:hover { filter: brightness(1.05); }
+    .update-btn:disabled { opacity: .6; cursor: default; }
+    .update-status { font-size: 13px; color: var(--muted); }
+    .update-status a { color: var(--accent); }
     .report-section { margin-bottom: 36px; }
     .section-title { font-size: 18px; margin: 0 0 12px; display: flex; align-items: baseline; gap: 8px; }
     .section-count { font-size: 12px; font-weight: 400; color: var(--muted); }
@@ -277,11 +288,16 @@ export function renderHtml(summary, opts = {}) {
     <header>
       <h1>🌍 Polymarket Geopolitics — New Markets</h1>
       <p class="sub">
-        Generated ${formatDateTime(summary.generatedAt)} ·
-        refreshes every ${summary.scheduleHours}h ·
-        next update ~${formatDateTime(nextRun)}
+        Geopolitics markets added in the last ${windowDays} ${windowDays === 1 ? 'day' : 'days'} ·
+        generated ${formatDateTime(summary.generatedAt)} ·
+        auto-refreshes every ${summary.scheduleHours}h (next ~${formatDateTime(nextRun)})
       </p>
     </header>
+
+    <div class="updatebar">
+      <button type="button" class="update-btn" id="update-btn">🔄 Update now</button>
+      <span class="update-status" id="update-status"></span>
+    </div>
 
     <div class="legend">
       <span class="swatch"></span>
@@ -299,6 +315,47 @@ ${submarketsSection}
       <br />Not affiliated with Polymarket. For informational purposes only.
     </footer>
   </div>
+
+  <script>
+  (function () {
+    var btn = document.getElementById('update-btn');
+    var status = document.getElementById('update-status');
+    var workflowUrl = ${JSON.stringify(summary.refreshUrl || '').replace(/</g, '\\u003c')};
+    if (!btn) return;
+
+    function fallback() {
+      // Static hosting (e.g. GitHub Pages) can't regenerate data in place.
+      status.textContent = '';
+      if (workflowUrl) {
+        status.appendChild(document.createTextNode('This site refreshes on GitHub — '));
+        var a = document.createElement('a');
+        a.href = workflowUrl; a.target = '_blank'; a.rel = 'noopener noreferrer';
+        a.textContent = 'run an update now →';
+        status.appendChild(a);
+        status.appendChild(document.createTextNode(' then reload this page in ~1 min.'));
+      } else {
+        status.textContent = 'Live refresh needs server mode (npm start); this page updates on its schedule.';
+      }
+      btn.disabled = false;
+    }
+
+    btn.addEventListener('click', function () {
+      btn.disabled = true;
+      status.textContent = 'Requesting update…';
+      fetch('./run', { method: 'POST', cache: 'no-store' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('no server');
+          return res.json().catch(function () { return {}; });
+        })
+        .then(function (data) {
+          if (data && data.ok === false) throw new Error('server error');
+          status.textContent = 'Updated ✓ Reloading…';
+          setTimeout(function () { location.reload(); }, 1200);
+        })
+        .catch(fallback);
+    });
+  })();
+  </script>
 </body>
 </html>
 `;

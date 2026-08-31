@@ -57,10 +57,13 @@ export function buildSummary({ events = [], submarkets = [] }, opts = {}) {
   return {
     generatedAt: generatedAt.toISOString(),
     scheduleHours: opts.scheduleHours ?? 6,
+    windowDays: opts.windowDays ?? 7,
+    showOnlyHighlighted: Boolean(opts.showOnlyHighlighted),
     threshold,
     tagSlug: opts.tagSlug ?? 'geopolitics',
     isFirstRun: Boolean(opts.isFirstRun),
     previousRunAt: opts.previousRunAt ?? null,
+    refreshUrl: opts.refreshUrl ?? '',
     events: buildSection(events, { threshold, totalTracked: opts.eventsTracked ?? null }),
     submarkets: buildSection(submarkets, { threshold, totalTracked: opts.submarketsTracked ?? null }),
   };
