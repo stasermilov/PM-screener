@@ -46,20 +46,8 @@ jobs:
           # GITHUB_REPOSITORY is provided automatically; the Update button uses
           # it to link back to this workflow from the published page.
 
-      # Persist ONLY the small state file so the next run can tell which markets
-      # are newly added. The HTML report is published via Pages, not committed.
-      - name: Persist screener state
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/state.json
-          if git diff --cached --quiet; then
-            echo "No state change to commit."
-          else
-            git commit -m "chore: update screener state [skip ci]"
-            git push origin HEAD:${GITHUB_REF_NAME}
-          fi
-
+      # Publish the report FIRST, so a rare race on the state commit below can
+      # never block the actual deploy.
       - name: Upload report as Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
@@ -68,3 +56,29 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      # Persist ONLY the small state file so the next run can tell which markets
+      # are newly added. This is best-effort: if the branch moved on the remote
+      # since checkout (e.g. a re-run of an older run, or a concurrent push), we
+      # rebase and retry, and never fail the job over it — the page is already
+      # published above. The HTML report is served via Pages, not committed.
+      - name: Persist screener state (best effort)
+        continue-on-error: true
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/state.json
+          if git diff --cached --quiet; then
+            echo "No state change to commit."
+            exit 0
+          fi
+          git commit -m "chore: update screener state [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:${GITHUB_REF_NAME}; then
+              echo "State pushed."
+              exit 0
+            fi
+            echo "Push rejected (branch moved); syncing and retrying ($attempt)…"
+            git pull --rebase --autostash origin ${GITHUB_REF_NAME} || true
+          done
+          echo "Could not push state after retries; the report is already published, so continuing."
