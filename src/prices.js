@@ -113,11 +113,10 @@ export function buildMovers(markets, prices, opts = {}) {
 
   dayItems.sort(sortByAbsChange);
   threeDayItems.sort(sortByAbsChange);
-  const limit = opts.limit ?? 100;
 
   return {
-    day: { total: dayItems.length, items: dayItems.slice(0, limit) },
-    threeDay: { total: threeDayItems.length, items: threeDayItems.slice(0, limit) },
+    day: { total: dayItems.length, items: dayItems },
+    threeDay: { total: threeDayItems.length, items: threeDayItems },
   };
 }
 
@@ -125,11 +124,10 @@ export function buildMovers(markets, prices, opts = {}) {
 export function buildHighChance(markets, opts = {}) {
   const min = opts.min ?? 0.6;
   const max = opts.max ?? 0.92;
-  const limit = opts.limit ?? 200;
 
   const items = (markets || [])
     .filter((m) => m.chance != null && Number.isFinite(m.chance) && m.chance >= min && m.chance <= max)
     .sort((a, b) => b.chance - a.chance || Number(b.volume) - Number(a.volume));
 
-  return { total: items.length, items: items.slice(0, limit) };
+  return { total: items.length, items };
 }
