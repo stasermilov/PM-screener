@@ -7,6 +7,8 @@ import http from 'node:http';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
+import { summarize } from './summary.js';
+
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
   '.json': 'application/json; charset=utf-8',
@@ -48,7 +50,7 @@ export function startServer({ config, triggerRefresh, getStatus }) {
 
       if (pathname === '/run') {
         const summary = await triggerRefresh();
-        return sendJson(res, 200, { ok: true, totals: summary?.totals ?? null });
+        return sendJson(res, 200, { ok: true, stats: summary ? summarize(summary) : null });
       }
 
       if (pathname === '/data.json') {

@@ -1,42 +1,33 @@
-// One full refresh cycle: fetch geopolitics markets, reconcile against saved
-// state, select the markets added within the rolling window, build the summary,
-// render the HTML report, and persist both the output and the updated state.
+// One full refresh cycle: fetch every category, reconcile events against saved
+// state, select the last-N-days markets per category (fresh/earlier split),
+// record price snapshots, compute Movers and High-chance across all categories,
+// render the multi-tab report, and persist output + state.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { config } from './config.js';
-import { fetchGeopoliticsMarkets } from './gammaClient.js';
-import {
-  loadState,
-  saveState,
-  reconcile,
-  selectWithinWindow,
-  partitionByFreshness,
-} from './marketStore.js';
+import { fetchCategories } from './gammaClient.js';
+import { normalizeEvents, extractPricedMarkets } from './normalize.js';
+import { loadState, saveState, reconcileSeen, selectWithinWindow, partitionByFreshness } from './marketStore.js';
+import { recordPrices, buildMovers, buildHighChance } from './prices.js';
 import { buildSummary } from './summary.js';
 import { renderHtml } from './render.js';
 
 /**
  * Run one refresh.
- * @param {object} [deps] injectable dependencies for testing
- * @param {Function} [deps.fetchMarkets] async () => { markets, tagSlug, ... }
+ * @param {object} [deps]
+ * @param {Function} [deps.fetchCategories] async () => { categories: [{slug,label,emoji,rawEvents,error?}] }
  * @param {Date}     [deps.now]
- * @returns {Promise<{summary: object, htmlPath: string, dataPath: string}>}
  */
 export async function refresh(deps = {}) {
   const now = deps.now instanceof Date ? deps.now : new Date();
-  const fetchMarkets = deps.fetchMarkets || fetchGeopoliticsMarkets;
+  const fetchFn = deps.fetchCategories || fetchCategories;
 
   const state = await loadState(config.stateFile);
   const previousRunAt = state.lastRunAt;
 
-  const { markets, tagSlug } = await fetchMarkets();
-
-  // Record when each market was first seen (stable timestamp), then keep only
-  // those added within the rolling window that meet the criteria.
-  const reconciled = reconcile(state, markets, { now });
-  const nextState = reconciled.nextState;
+  const { categories: fetched } = await fetchFn();
 
   const windowOpts = {
     now,
@@ -44,16 +35,61 @@ export async function refresh(deps = {}) {
     threshold: config.volumeThreshold,
     showOnlyHighlighted: config.showOnlyHighlighted,
   };
-  const recentEvents = selectWithinWindow(reconciled.events, windowOpts);
 
-  // Split into a fresh (last freshDays) group and the rest.
-  const { fresh, earlier } = partitionByFreshness(recentEvents, {
+  let seen = state.seen || {};
+  const categoryResults = [];
+  const allMarketsById = new Map(); // rawId -> priced market (deduped across categories)
+
+  for (const cat of fetched) {
+    const events = normalizeEvents(cat.rawEvents);
+    const rec = reconcileSeen(seen, events, { now });
+    seen = rec.nextSeen; // thread forward so later categories keep earlier ones
+
+    const recent = selectWithinWindow(rec.items, windowOpts);
+    const { fresh, earlier } = partitionByFreshness(recent, { now, freshDays: config.freshDays });
+
+    categoryResults.push({
+      slug: cat.slug,
+      label: cat.label,
+      emoji: cat.emoji,
+      error: cat.error || null,
+      eventsTracked: events.length,
+      freshEvents: fresh,
+      earlierEvents: earlier,
+    });
+
+    for (const m of extractPricedMarkets(cat.rawEvents, cat)) {
+      if (!allMarketsById.has(m.rawId)) allMarketsById.set(m.rawId, m);
+    }
+  }
+
+  const allMarkets = [...allMarketsById.values()];
+
+  const prices = recordPrices(state.prices, allMarkets, {
     now,
-    freshDays: config.freshDays,
+    minVolume: config.priceTrackMinVolume,
+    maxAgeHours: config.priceHistoryMaxAgeHours,
+    maxPoints: config.priceHistoryMaxPoints,
+  });
+
+  const movers = buildMovers(allMarkets, prices, {
+    dayPct: config.moverDayPct,
+    dayHours: config.moverDayHours,
+    dayMaxGapHours: config.moverDayMaxGapHours,
+    threeDayPct: config.mover3dPct,
+    threeDayHours: config.mover3dHours,
+    threeDayMaxGapHours: config.mover3dMaxGapHours,
+    limit: config.moversLimit,
+  });
+
+  const highChance = buildHighChance(allMarkets, {
+    min: config.highMin,
+    max: config.highMax,
+    limit: config.highChanceLimit,
   });
 
   const summary = buildSummary(
-    { freshEvents: fresh, earlierEvents: earlier },
+    { categories: categoryResults, movers, highChance },
     {
       threshold: config.volumeThreshold,
       scheduleHours: config.scheduleHours,
@@ -61,12 +97,22 @@ export async function refresh(deps = {}) {
       freshDays: config.freshDays,
       showOnlyHighlighted: config.showOnlyHighlighted,
       generatedAt: now,
-      tagSlug: tagSlug || config.tagSlug,
-      eventsTracked: markets.length,
       previousRunAt,
       refreshUrl: config.workflowUrl,
+      moverDayPct: config.moverDayPct,
+      mover3dPct: config.mover3dPct,
+      highMin: config.highMin,
+      highMax: config.highMax,
     },
   );
+
+  const nextState = {
+    version: state.version || 1,
+    firstRunAt: state.firstRunAt || now.toISOString(),
+    lastRunAt: now.toISOString(),
+    seen,
+    prices,
+  };
 
   const html = renderHtml(summary, { now });
 

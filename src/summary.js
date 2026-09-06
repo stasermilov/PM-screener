@@ -1,7 +1,7 @@
-// Build the summary data model from the newly-added items. The same rule is
-// applied to two independent sections — event-level markets and individual
-// sub-markets: any item with volume over the threshold is highlighted and
-// sorted to the top; stats are computed per section. Pure — no I/O, no HTML.
+// Build the summary data model. Each category's new-market list has a "fresh"
+// and an "earlier" group (over-threshold markets highlighted and pinned to the
+// top). Movers and High-chance are cross-category, computed in prices.js and
+// passed through here. Pure — no I/O, no HTML.
 
 /** Flag items over the threshold and sort highlighted + biggest-volume first. */
 export function sortAndFlag(items, threshold) {
@@ -42,23 +42,58 @@ export function buildSection(items, { threshold = 3000, totalTracked = null } = 
   };
 }
 
+/** Compact, machine-friendly stats for /healthz and logs. */
+export function summarize(summary) {
+  return {
+    categories: (summary.categories || []).map((c) => ({
+      slug: c.slug,
+      windowCount: c.totals.windowCount,
+      freshCount: c.totals.freshCount,
+      highlightedCount: c.totals.highlightedCount,
+      error: c.error || null,
+    })),
+    moversDay: summary.movers?.day?.total ?? 0,
+    movers3d: summary.movers?.threeDay?.total ?? 0,
+    highChance: summary.highChance?.total ?? 0,
+  };
+}
+
 /**
- * Build the full summary model. Events are already split by the caller into a
- * "fresh" bucket (added within freshDays) and an "earlier" bucket (the rest of
- * the window). Each bucket is a single {stats, items} group.
+ * Build one category view from its already-windowed fresh/earlier event lists.
+ */
+export function buildCategory(cat, threshold) {
+  const fresh = buildSection(cat.freshEvents || [], { threshold });
+  const earlier = buildSection(cat.earlierEvents || [], { threshold });
+  return {
+    slug: cat.slug,
+    label: cat.label,
+    emoji: cat.emoji,
+    tracked: cat.eventsTracked ?? null,
+    error: cat.error || null,
+    fresh,
+    earlier,
+    totals: {
+      freshCount: fresh.stats.newCount,
+      earlierCount: earlier.stats.newCount,
+      windowCount: fresh.stats.newCount + earlier.stats.newCount,
+      highlightedCount: fresh.stats.highlightedCount + earlier.stats.highlightedCount,
+    },
+  };
+}
+
+/**
+ * Build the full summary model.
  *
  * @param {object} input
- * @param {object[]} input.freshEvents    events added within freshDays
- * @param {object[]} input.earlierEvents  events added earlier in the window
+ * @param {object[]} input.categories  per-category {slug,label,emoji,freshEvents,earlierEvents,eventsTracked,error}
+ * @param {object}   input.movers      from prices.buildMovers
+ * @param {object}   input.highChance  from prices.buildHighChance
  * @param {object} opts
  */
 export function buildSummary(input = {}, opts = {}) {
-  const { freshEvents = [], earlierEvents = [] } = input;
+  const { categories = [], movers = null, highChance = null } = input;
   const threshold = opts.threshold ?? 3000;
   const generatedAt = opts.generatedAt instanceof Date ? opts.generatedAt : new Date();
-
-  const fresh = buildSection(freshEvents, { threshold });
-  const earlier = buildSection(earlierEvents, { threshold });
 
   return {
     generatedAt: generatedAt.toISOString(),
@@ -67,17 +102,20 @@ export function buildSummary(input = {}, opts = {}) {
     freshDays: opts.freshDays ?? 2,
     showOnlyHighlighted: Boolean(opts.showOnlyHighlighted),
     threshold,
-    tagSlug: opts.tagSlug ?? 'geopolitics',
     previousRunAt: opts.previousRunAt ?? null,
     refreshUrl: opts.refreshUrl ?? '',
-    tracked: { events: opts.eventsTracked ?? null },
-    totals: {
-      freshCount: fresh.stats.newCount,
-      earlierCount: earlier.stats.newCount,
-      windowCount: fresh.stats.newCount + earlier.stats.newCount,
-      highlightedCount: fresh.stats.highlightedCount + earlier.stats.highlightedCount,
+    categories: categories.map((c) => buildCategory(c, threshold)),
+    movers: {
+      dayPct: opts.moverDayPct ?? 20,
+      threeDayPct: opts.mover3dPct ?? 30,
+      day: movers?.day ?? { total: 0, items: [] },
+      threeDay: movers?.threeDay ?? { total: 0, items: [] },
     },
-    fresh,
-    earlier,
+    highChance: {
+      min: opts.highMin ?? 0.6,
+      max: opts.highMax ?? 0.92,
+      total: highChance?.total ?? 0,
+      items: highChance?.items ?? [],
+    },
   };
 }

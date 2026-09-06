@@ -1,11 +1,16 @@
-# PM Screener — Polymarket Geopolitics new-market summary
+# PM Screener — Polymarket multi-category market screener
 
-An app that summarizes **markets added under the _Geopolitics_ category on
-Polymarket in the last 7 days**, refreshed **every 6 hours** (and on demand via
-an **Update** button). Markets added in the **last 2 days** get their own
-prominent area at the top, and markets with **over $3,000 volume are highlighted
-in yellow and pinned to the top** of each list. A **Watchlist** tab lets you
-save markets to follow (stored in your browser).
+A phone-friendly screener over several Polymarket categories, refreshed **every
+6 hours** (and on demand via an **Update** button). It has a bottom tab bar with:
+
+- **Category tabs** — **Geopolitics, Tech, Politics, IPO** (configurable). Each
+  lists markets **added in the last 7 days**, with the ones added in the **last
+  2 days** pulled into a prominent area on top, and markets **over $3,000 volume
+  highlighted in yellow** and pinned.
+- **🚀 Movers** — markets across all categories whose probability moved
+  **&gt; 20 points in 24h**, plus a subsection **&gt; 30 points in 3 days**.
+- **🎯 High chance** — markets across all categories priced **60–92%**.
+- **⭐ Watchlist** — markets you've ticked, saved in your browser.
 
 Data comes from the public [Polymarket Gamma API](https://gamma-api.polymarket.com).
 
@@ -13,30 +18,35 @@ Data comes from the public [Polymarket Gamma API](https://gamma-api.polymarket.c
 
 On each cycle (and whenever you press **Update now**) the app:
 
-1. Fetches every open event under the `geopolitics` tag from the Gamma API.
-2. Records when each market was first seen, then keeps those **added within the
-   last 7 days** (a rolling window, independent of how often it refreshes).
-3. Splits them into two areas so the newest stand out, **without duplication**:
-   - **🆕 Just added — last 2 days** (top, highlighted area).
-   - **🗓️ Added 2–7 days ago** (below).
-4. Applies the highlight rule: any market with **volume &gt; $3,000** is
-   highlighted in yellow and sorted to the top; the rest follow by volume.
-   (Set `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.)
-5. Renders a self-contained HTML report (`public/index.html`) plus a
+1. Fetches every open event for each category tag from the Gamma API.
+2. Per category: records when each market was first seen, keeps those **added in
+   the last 7 days**, and splits them **without duplication** into
+   **🆕 Just added — last 2 days** (top) and **🗓️ Added 2–7 days ago** (below).
+   Markets **&gt; $3,000 volume** are highlighted and pinned. (Set
+   `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.)
+3. Records a **price snapshot** for each market, then computes **Movers** and
+   **High chance** across all categories from that history.
+4. Renders a self-contained HTML report (`public/index.html`) plus a
    machine-readable `public/data.json`.
+
+### Movers — a note on the "warm-up"
+
+Gamma doesn't expose an arbitrary-window price change, so the screener stores its
+own price snapshot each run and measures moves against it. That means Movers
+**warms up**: the **24h** list fills within about a day of runs (it also uses
+Gamma's own 1‑day change as an immediate fallback where present), and the
+**3‑day** list after about three days.
 
 ### Watchlist
 
-The page has two tabs in a bottom bar: **🌍 Geopolitics** (the generated list)
-and **⭐ Watchlist**. Every market card has a **✓ Watchlist** tick — tap to add,
-tap again to remove. The Watchlist tab lists the markets you've added, in the
-order you added them, each with its own **Remove** button.
+Every market card — in any tab — has a **✓ Watchlist** tick: tap to add, tap
+again to remove. The **⭐ Watchlist** tab lists what you've added, in order,
+each with its own **Remove** button.
 
-The watchlist is stored in your browser's `localStorage`, so it is **per device
-and per browser** — it survives refreshes and the 6‑hourly redeploys, but is not
-shared between devices and never leaves your browser. Each market's details are
-saved when you add it, so it stays in your watchlist even after it ages out of
-the 7‑day list.
+It's stored in your browser's `localStorage`, so it is **per device and per
+browser** — it survives refreshes and the 6‑hourly redeploys, but is not shared
+between devices and never leaves your browser. Each market's details are saved
+when you add it, so it stays even after it ages out of a list.
 
 ### The "Update now" button
 
@@ -114,15 +124,19 @@ Everything is configurable via environment variables (defaults match the task):
 | Variable                  | Default                             | Meaning                                        |
 | ------------------------- | ----------------------------------- | ---------------------------------------------- |
 | `GAMMA_API_BASE`          | `https://gamma-api.polymarket.com`  | Gamma API base URL                             |
-| `GEO_TAG_SLUG`            | `geopolitics`                       | Polymarket tag to screen                       |
+| `CATEGORY_SLUGS`          | `geopolitics,tech,politics,ipo`     | Comma-separated Polymarket tags to show as tabs |
 | `VOLUME_THRESHOLD`        | `3000`                              | Highlight/pin markets with volume above this   |
 | `SCHEDULE_HOURS`          | `6`                                 | Refresh cadence in hours                       |
 | `WINDOW_DAYS`             | `7`                                 | Rolling window: list markets added in last N days |
 | `FRESH_DAYS`              | `2`                                 | Markets newer than this go in the top "Just added" area |
 | `SHOW_ONLY_HIGHLIGHTED`   | `false`                             | If `true`, list only markets over the threshold |
-| `MAX_EVENTS`              | `1000`                              | Max events fetched per refresh                 |
+| `MOVER_DAY_PCT`           | `20`                                | Movers: min points moved in 24h                |
+| `MOVER_3D_PCT`            | `30`                                | Movers: min points moved in 3 days             |
+| `HIGH_MIN` / `HIGH_MAX`   | `0.6` / `0.92`                      | High-chance price band (0–1)                   |
+| `PRICE_TRACK_MIN_VOLUME`  | `1000`                              | Only snapshot prices for markets above this volume |
+| `MAX_EVENTS`              | `600`                               | Max events fetched per category per refresh    |
 | `OUTPUT_DIR`              | `public`                            | Where the report is written                    |
-| `STATE_FILE`              | `data/state.json`                   | Where first-seen state is persisted            |
+| `STATE_FILE`              | `data/state.json`                   | Where first-seen + price-history state is kept |
 | `WORKFLOW_URL`            | _(auto in CI)_                      | GitHub Actions URL the Update button links to on Pages |
 | `PORT` / `HOST`           | `3000` / `0.0.0.0`                  | Server bind address                            |
 | `RUN_ON_START`            | `true`                              | Run one refresh immediately on server start    |
@@ -131,13 +145,14 @@ Everything is configurable via environment variables (defaults match the task):
 
 ```
 src/
-  config.js        env-driven configuration
-  gammaClient.js   Gamma API client (tag resolution + paging)
-  normalize.js     raw event -> normalized market (pure)
-  marketStore.js   first-seen state + rolling-window selection (pure)
-  summary.js       highlight rule, sorting, per-area stats (pure)
-  render.js        HTML report + watchlist/tabs + Update button (pure)
-  refresh.js       one full cycle: fetch -> select -> render -> persist
+  config.js        env-driven configuration (categories, thresholds, bands)
+  gammaClient.js   Gamma API client (per-tag fetch across categories)
+  normalize.js     raw event -> market; price extraction (pure)
+  marketStore.js   first-seen state + window/fresh selection + price state (pure)
+  prices.js        price-history snapshots, Movers & High-chance (pure)
+  summary.js       per-category highlight/sort + model assembly (pure)
+  render.js        multi-tab HTML + watchlist + Update button (pure)
+  refresh.js       one full cycle: fetch -> analyse -> render -> persist
   scheduler.js     drift-safe 6-hour scheduler
   server.js        zero-dep HTTP server (serves report, /run refresh)
   cli.js           one-shot entrypoint (npm run generate)
@@ -152,19 +167,26 @@ test/              node:test unit tests + fixtures
 npm test
 ```
 
-Covers volume/date coercion, the first-seen reconcile, the 7-day window
-selection, the fresh/earlier split, the highlight-and-sort rule, HTML escaping,
-the Update button/URL and watchlist markup, and the scheduler math. The
-watchlist's interactive behaviour (add/remove tick, tab switching, per-item
-remove, `localStorage` persistence) is verified separately in a headless
-browser.
+Covers price coercion and Yes-price derivation, priced-market extraction, the
+first-seen reconcile, the 7-day window and fresh/earlier split, the
+highlight-and-sort rule, price-history recording/pruning, the Movers (24h +
+3‑day, with Gamma fallback) and High-chance selection, the multi-tab render, and
+HTML escaping. The interactive UI (tab switching across all tabs, the watchlist
+tick add/remove, per-item remove, `localStorage` persistence) is verified
+separately in a headless browser.
 
 ## Notes & disclaimer
 
 - The `>$3,000` threshold is **exclusive** (a market at exactly $3,000 is not
   highlighted), matching "over $3,000".
-- A Polymarket "market" card is a Gamma **event**; the app screens events and
-  uses each event's aggregate volume (falling back to summing child markets).
+- Category lists screen Gamma **events** (the cards you browse) by aggregate
+  volume; **Movers** and **High chance** operate on individual **markets** (the
+  units that carry a Yes price).
+- If a category tab is empty, its Polymarket tag slug may differ from the default
+  — adjust it via `CATEGORY_SLUGS`.
+- Movers depends on the app's own price history, so it warms up over ~3 days (see
+  above). Price history is kept in `data/state.json`, which therefore grows;
+  it's pruned to a rolling window to stay small.
 - The watchlist lives only in your browser (`localStorage`) — per device, not
   shared, and never sent anywhere.
 - Not affiliated with Polymarket. For informational purposes only; not

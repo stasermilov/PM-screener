@@ -113,3 +113,88 @@ export function normalizeEvents(events) {
   }
   return out;
 }
+
+// --- Price / market-level extraction (for Movers & High chance) ---
+
+/** Parse a Gamma JSON-encoded array field (e.g. '["Yes","No"]'), tolerantly. */
+export function parseJsonArray(value) {
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string' && value.trim().startsWith('[')) {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+const clamp01 = (x) => Math.min(1, Math.max(0, x));
+
+function numOrNull(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * The "Yes" probability (0..1) of a single Gamma market, or null if it can't be
+ * determined. Prefers the explicit Yes outcome price, then 1 - No, then the last
+ * trade price, then the first outcome price.
+ */
+export function marketChance(m) {
+  const outcomes = parseJsonArray(m?.outcomes).map((o) => String(o));
+  const prices = parseJsonArray(m?.outcomePrices).map((p) => toNumber(p));
+
+  const yesIdx = outcomes.findIndex((o) => o.toLowerCase() === 'yes');
+  if (yesIdx >= 0 && Number.isFinite(prices[yesIdx])) return clamp01(prices[yesIdx]);
+
+  const noIdx = outcomes.findIndex((o) => o.toLowerCase() === 'no');
+  if (noIdx >= 0 && Number.isFinite(prices[noIdx])) return clamp01(1 - prices[noIdx]);
+
+  const last = numOrNull(m?.lastTradePrice);
+  if (last !== null) return clamp01(last);
+
+  if (Number.isFinite(prices[0])) return clamp01(prices[0]);
+  return null;
+}
+
+/**
+ * Flatten a category's raw events into individual priced markets (the tradeable
+ * units that carry a probability), tagged with their category and parent event.
+ * Closed markets are skipped. De-duped by market id.
+ */
+export function extractPricedMarkets(events, cat = {}) {
+  const seen = new Set();
+  const out = [];
+  for (const ev of events || []) {
+    if (!Array.isArray(ev?.markets)) continue;
+    const eventTitle = pick(ev, ['title', 'question', 'name']) || '';
+    const slug = pick(ev, ['slug']) || '';
+    const url = slug ? POLYMARKET_EVENT_BASE + slug : 'https://polymarket.com';
+
+    for (const m of ev.markets) {
+      const rawId = pick(m, ['id', 'conditionId']) ?? (m?.slug || null);
+      if (rawId == null) continue;
+      const idStr = String(rawId);
+      if (seen.has(idStr) || Boolean(m.closed)) continue;
+      seen.add(idStr);
+
+      out.push({
+        rawId: idStr,
+        id: `mk:${idStr}`,
+        question: pick(m, ['question', 'groupItemTitle', 'title']) || eventTitle || 'Market',
+        eventTitle,
+        url,
+        chance: marketChance(m),
+        volume: Math.round(toNumber(pick(m, ['volumeNum', 'volume'])) * 100) / 100,
+        gammaDayChange: numOrNull(m.oneDayPriceChange),
+        category: cat.slug || '',
+        categoryLabel: cat.label || '',
+        categoryEmoji: cat.emoji || '',
+      });
+    }
+  }
+  return out;
+}

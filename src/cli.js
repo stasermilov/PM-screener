@@ -7,14 +7,21 @@ import { config } from './config.js';
 
 async function main() {
   const startedAt = Date.now();
-  console.log(`[pm-screener] refreshing "${config.tagSlug}" markets from ${config.apiBase}`);
+  const cats = config.categories.map((c) => c.slug).join(', ');
+  console.log(`[pm-screener] refreshing [${cats}] from ${config.apiBase}`);
   try {
     const { summary, htmlPath, dataPath } = await refresh();
-    const t = summary.totals;
+    console.log(`[pm-screener] done in ${Date.now() - startedAt}ms`);
+    for (const c of summary.categories) {
+      console.log(
+        `  ${c.label}: ${c.totals.windowCount} in last ${config.windowDays}d ` +
+          `(${c.totals.freshCount} fresh, ${c.totals.highlightedCount} over ${config.volumeThreshold})` +
+          (c.error ? ` [error: ${c.error}]` : ''),
+      );
+    }
     console.log(
-      `[pm-screener] done in ${Date.now() - startedAt}ms\n` +
-        `  last ${config.freshDays}d (fresh): ${t.freshCount}\n` +
-        `  last ${config.windowDays}d (total): ${t.windowCount}, ${t.highlightedCount} over ${config.volumeThreshold}`,
+      `  Movers: ${summary.movers.day.total} (24h), ${summary.movers.threeDay.total} (3d) · ` +
+        `High chance: ${summary.highChance.total}`,
     );
     console.log(`[pm-screener] wrote ${htmlPath}`);
     console.log(`[pm-screener] wrote ${dataPath}`);

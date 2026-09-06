@@ -17,7 +17,8 @@ function emptyState() {
     version: STATE_VERSION,
     firstRunAt: null,
     lastRunAt: null,
-    seen: {}, // event-level markets
+    seen: {}, // event-level markets: id -> {firstSeenAt, ...}
+    prices: {}, // market price history: rawId -> [[epochSeconds, price], ...]
   };
 }
 
@@ -26,7 +27,7 @@ export async function loadState(stateFile) {
     const raw = await fs.readFile(stateFile, 'utf8');
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return emptyState();
-    return { ...emptyState(), ...parsed, seen: parsed.seen || {} };
+    return { ...emptyState(), ...parsed, seen: parsed.seen || {}, prices: parsed.prices || {} };
   } catch (err) {
     if (err.code === 'ENOENT') return emptyState();
     throw err;

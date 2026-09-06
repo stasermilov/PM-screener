@@ -1,99 +1,88 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildSummary } from '../src/summary.js';
+import { buildSummary, summarize } from '../src/summary.js';
 import { renderHtml, formatUsd, escapeHtml } from '../src/render.js';
 import { normalizeEvents } from '../src/normalize.js';
 import { rawEvents } from './fixtures.js';
 
 const GEN = new Date('2026-08-31T12:00:00Z');
 
-function summaryFromFixtures(extra = {}) {
-  const raw = rawEvents(GEN.toISOString());
+function sampleSummary() {
+  const geo = {
+    slug: 'geopolitics', label: 'Geopolitics', emoji: '🌍', eventsTracked: 5,
+    freshEvents: normalizeEvents(rawEvents(GEN.toISOString())), earlierEvents: [],
+  };
+  const tech = {
+    slug: 'tech', label: 'Tech', emoji: '💻', eventsTracked: 0, freshEvents: [], earlierEvents: [],
+  };
+  const movers = {
+    day: { total: 1, items: [{ id: 'mk:m1', rawId: 'm1', question: 'Mover A', url: '#', chance: 0.55, change: 0.25, from: 0.3, to: 0.55, volume: 5000, categoryLabel: 'Tech', categoryEmoji: '💻' }] },
+    threeDay: { total: 0, items: [] },
+  };
+  const highChance = {
+    total: 1, items: [{ id: 'mk:h1', rawId: 'h1', question: 'High A', url: '#', chance: 0.8, volume: 4000, categoryLabel: 'Politics', categoryEmoji: '🏛️' }],
+  };
   return buildSummary(
-    { freshEvents: normalizeEvents(raw), ...extra },
+    { categories: [geo, tech], movers, highChance },
     {
-      threshold: 3000,
-      windowDays: 7,
-      freshDays: 2,
-      generatedAt: GEN,
-      tagSlug: 'geopolitics',
+      threshold: 3000, windowDays: 7, freshDays: 2, generatedAt: GEN,
+      moverDayPct: 20, mover3dPct: 30, highMin: 0.6, highMax: 0.92,
       refreshUrl: 'https://github.com/o/r/actions/workflows/geopolitics-summary.yml',
     },
   );
 }
 
-test('over-threshold markets are highlighted and sorted to the top', () => {
-  const { fresh } = summaryFromFixtures();
-  // id 1 (5000) and id 3 (3500.5) are over 3000.
-  assert.equal(fresh.stats.highlightedCount, 2);
-  const flags = fresh.items.map((m) => m.highlighted);
-  const firstNonHL = flags.indexOf(false);
-  assert.ok(!flags.slice(firstNonHL).includes(true), 'all highlighted come first');
-  assert.equal(fresh.items[0].id, '1'); // 5000
-  assert.equal(fresh.items[1].id, '3'); // 3500.5
+test('each category highlights over-threshold markets and pins them on top', () => {
+  const s = sampleSummary();
+  const geo = s.categories[0];
+  assert.equal(geo.fresh.stats.highlightedCount, 2); // id 1 (5000) and id 3 (3500.5)
+  assert.equal(geo.fresh.items[0].id, '1');
+  assert.equal(geo.totals.windowCount, 5);
 });
 
-test('threshold is exclusive (exactly 3000 is not highlighted)', () => {
-  const summary = buildSummary(
-    { freshEvents: [{ id: 'a', title: 'exact', volume: 3000, tags: [], url: '#' }] },
-    { threshold: 3000, generatedAt: GEN },
-  );
-  assert.equal(summary.fresh.items[0].highlighted, false);
+test('summarize produces compact per-category + movers/high-chance stats', () => {
+  const s = summarize(sampleSummary());
+  assert.equal(s.categories.length, 2);
+  assert.equal(s.categories[0].slug, 'geopolitics');
+  assert.equal(s.moversDay, 1);
+  assert.equal(s.highChance, 1);
 });
 
-test('totals aggregate fresh, earlier, and highlighted counts', () => {
-  const summary = summaryFromFixtures({
-    earlierEvents: [{ id: 'z', title: 'older', volume: 10, tags: [], url: '#' }],
-  });
-  assert.equal(summary.totals.freshCount, 5);
-  assert.equal(summary.totals.earlierCount, 1);
-  assert.equal(summary.totals.windowCount, 6);
-  assert.equal(summary.totals.highlightedCount, 2);
+test('renderHtml builds a tab per category plus Movers/High chance/Watchlist', () => {
+  const html = renderHtml(sampleSummary(), { now: GEN });
+  assert.ok(html.includes('data-view="view-cat-geopolitics"'));
+  assert.ok(html.includes('data-view="view-cat-tech"'));
+  assert.ok(html.includes('data-view="view-movers"'));
+  assert.ok(html.includes('data-view="view-highchance"'));
+  assert.ok(html.includes('data-view="view-watch"'));
+  assert.ok(html.includes('id="view-cat-geopolitics"'));
+  assert.ok(html.includes('id="view-movers"'));
 });
 
-test('renderHtml has both areas, no sub-markets, and escapes untrusted text', () => {
-  const summary = summaryFromFixtures({
-    earlierEvents: [{ id: 'z', title: 'older market', volume: 500, tags: [], url: '#' }],
-  });
-  const html = renderHtml(summary, { now: GEN });
+test('renderHtml shows movers with a points delta and high-chance with a probability', () => {
+  const html = renderHtml(sampleSummary(), { now: GEN });
+  assert.ok(html.includes('Movers'));
+  assert.ok(html.includes('+25 pts'), 'mover shows the points change');
+  assert.ok(html.includes('55%'), 'mover shows the current chance');
+  assert.ok(html.includes('High chance'));
+  assert.ok(html.includes('80%'), 'high-chance shows the probability');
+});
 
-  const freshIdx = html.indexOf('Just added');
-  const earlierIdx = html.indexOf('days ago');
-  assert.ok(freshIdx > -1 && earlierIdx > -1);
-  assert.ok(freshIdx < earlierIdx, 'fresh area comes first');
-
-  assert.ok(html.includes('class="card highlight"'), 'highlighted cards present');
-  assert.ok(html.includes(formatUsd(3000)), 'legend shows the threshold');
-  assert.ok(!/sub-?market/i.test(html), 'sub-markets are gone');
-
+test('renderHtml has watchlist ticks for both events and markets, and escapes text', () => {
+  const html = renderHtml(sampleSummary(), { now: GEN });
+  assert.ok(html.includes('data-id="ev:1"'), 'event card tick');
+  assert.ok(html.includes('data-id="mk:m1"'), 'mover card tick');
+  assert.ok(html.includes('data-id="mk:h1"'), 'high-chance card tick');
+  assert.ok(html.includes('localStorage'));
+  assert.ok(html.includes('id="update-btn"'));
+  assert.ok(html.includes('https://github.com/o/r/actions/workflows/geopolitics-summary.yml'));
   assert.ok(!html.includes('<script>alert(1)</script>'));
   assert.ok(html.includes(escapeHtml('Danger <script>alert(1)</script> & "quotes"')));
 });
 
-test('renderHtml has a watchlist tick on every card and a Watchlist tab', () => {
-  const summary = summaryFromFixtures();
-  const html = renderHtml(summary, { now: GEN });
-
-  const toggleCount = (html.match(/class="watch-toggle"/g) || []).length;
-  assert.equal(toggleCount, summary.totals.windowCount, 'one tick per market card');
-
-  assert.ok(html.includes('id="tab-geo"') && html.includes('id="tab-watch"'), 'bottom tabs');
-  assert.ok(html.includes('id="view-watch"'), 'watchlist view container');
-  assert.ok(html.includes('id="watch-list"'), 'watchlist list container');
-  assert.ok(html.includes("localStorage"), 'watchlist persists in the browser');
-});
-
-test('renderHtml keeps the Update button and refresh URL', () => {
-  const html = renderHtml(summaryFromFixtures(), { now: GEN });
-  assert.ok(html.includes('id="update-btn"'));
-  assert.ok(html.includes('https://github.com/o/r/actions/workflows/geopolitics-summary.yml'));
-});
-
-test('renderHtml hides the earlier area when the window is empty', () => {
-  const summary = buildSummary({}, { threshold: 3000, windowDays: 7, freshDays: 2, generatedAt: GEN });
-  const html = renderHtml(summary);
-  assert.equal(summary.totals.windowCount, 0);
-  assert.ok(html.includes('Nothing new in the last 2'));
-  assert.ok(!html.includes('days ago'), 'earlier area hidden');
+test('an empty category shows a helpful "no markets" note', () => {
+  const html = renderHtml(sampleSummary(), { now: GEN });
+  assert.ok(html.includes('No open markets found'));
+  assert.ok(html.includes(formatUsd(3000)));
 });

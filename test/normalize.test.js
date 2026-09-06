@@ -7,6 +7,9 @@ import {
   eventVolume,
   normalizeEvent,
   normalizeEvents,
+  parseJsonArray,
+  marketChance,
+  extractPricedMarkets,
 } from '../src/normalize.js';
 import { rawEvents } from './fixtures.js';
 
@@ -50,4 +53,33 @@ test('normalizeEvents de-dupes and drops unusable entries', () => {
   const ids = out.map((m) => m.id);
   assert.equal(new Set(ids).size, ids.length); // unique
   assert.equal(out.length, 5); // 5 valid fixtures, dupe + junk removed
+});
+
+test('parseJsonArray tolerates strings, arrays, and junk', () => {
+  assert.deepEqual(parseJsonArray('["Yes","No"]'), ['Yes', 'No']);
+  assert.deepEqual(parseJsonArray(['a', 'b']), ['a', 'b']);
+  assert.deepEqual(parseJsonArray('nope'), []);
+  assert.deepEqual(parseJsonArray(undefined), []);
+});
+
+test('marketChance derives the Yes probability with sensible fallbacks', () => {
+  assert.equal(marketChance({ outcomes: '["Yes","No"]', outcomePrices: '["0.62","0.38"]' }), 0.62);
+  assert.equal(marketChance({ outcomes: '["No","Yes"]', outcomePrices: '["0.3","0.7"]' }), 0.7);
+  assert.equal(marketChance({ outcomes: '["No"]', outcomePrices: '["0.3"]' }), 0.7); // 1 - No
+  assert.equal(marketChance({ lastTradePrice: 0.55 }), 0.55);
+  assert.equal(marketChance({}), null);
+});
+
+test('extractPricedMarkets flattens markets and tags them with the category', () => {
+  const cat = { slug: 'geopolitics', label: 'Geopolitics', emoji: '🌍' };
+  const markets = extractPricedMarkets(rawEvents(), cat);
+  // events 1,2,4 have markets (1+1+2 = 4); events 3,5 have none.
+  assert.deepEqual(markets.map((m) => m.rawId).sort(), ['11', '21', '41', '42']);
+  const m11 = markets.find((m) => m.rawId === '11');
+  assert.equal(m11.id, 'mk:11');
+  assert.equal(m11.chance, 0.62);
+  assert.equal(m11.category, 'geopolitics');
+  assert.equal(m11.categoryLabel, 'Geopolitics');
+  // markets without price info have a null chance (excluded from movers/high-chance).
+  assert.equal(markets.find((m) => m.rawId === '41').chance, null);
 });

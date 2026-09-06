@@ -28,14 +28,44 @@ function resolvePath(name, fallback) {
   return path.isAbsolute(raw) ? raw : path.join(rootDir, raw);
 }
 
+// The categories shown as tabs. Each is a Polymarket tag. Emoji/label are for
+// display; slug is what the Gamma API is queried with. Override the set with
+// the CATEGORY_SLUGS env var (comma-separated slugs).
+const CATEGORY_META = {
+  geopolitics: { label: 'Geopolitics', emoji: '🌍' },
+  tech: { label: 'Tech', emoji: '💻' },
+  politics: { label: 'Politics', emoji: '🏛️' },
+  ipo: { label: 'IPO', emoji: '📈' },
+  business: { label: 'Business', emoji: '💼' },
+  crypto: { label: 'Crypto', emoji: '🪙' },
+  economy: { label: 'Economy', emoji: '📊' },
+  sports: { label: 'Sports', emoji: '🏆' },
+};
+
+function buildCategories() {
+  const raw = str('CATEGORY_SLUGS', 'geopolitics,tech,politics,ipo');
+  return raw
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+    .map((slug) => {
+      const meta = CATEGORY_META[slug] || {
+        label: slug.charAt(0).toUpperCase() + slug.slice(1),
+        emoji: '📊',
+      };
+      return { slug, label: meta.label, emoji: meta.emoji };
+    });
+}
+
 export const config = {
   rootDir,
 
   // --- Data source (Polymarket Gamma API) ---
   apiBase: str('GAMMA_API_BASE', 'https://gamma-api.polymarket.com').replace(/\/+$/, ''),
-  tagSlug: str('GEO_TAG_SLUG', 'geopolitics'),
-  // Upper bound on how many events we pull per refresh (paginated internally).
-  maxEvents: num('MAX_EVENTS', 1000),
+  // Categories shown as tabs (each is a Polymarket tag).
+  categories: buildCategories(),
+  // Upper bound on how many events we pull per category per refresh (paginated).
+  maxEvents: num('MAX_EVENTS', 600),
   pageSize: num('GAMMA_PAGE_SIZE', 100),
   requestTimeoutMs: num('REQUEST_TIMEOUT_MS', 20000),
 
@@ -55,6 +85,32 @@ export const config = {
   // Default false: show every market in the window and just highlight the big
   // ones.
   showOnlyHighlighted: str('SHOW_ONLY_HIGHLIGHTED', 'false') === 'true',
+
+  // --- Movers tab ---
+  // A market is a "mover" when its probability changed by at least this many
+  // percentage points over the given window. Movement is measured against the
+  // app's own price snapshots (see prices.js), so the 3-day figure warms up
+  // over ~3 days of runs.
+  moverDayPct: num('MOVER_DAY_PCT', 20), // >20 pts in 24h
+  moverDayHours: num('MOVER_DAY_HOURS', 24),
+  moverDayMaxGapHours: num('MOVER_DAY_MAX_GAP_HOURS', 14),
+  mover3dPct: num('MOVER_3D_PCT', 30), // >30 pts in 3 days
+  mover3dHours: num('MOVER_3D_HOURS', 72),
+  mover3dMaxGapHours: num('MOVER_3D_MAX_GAP_HOURS', 30),
+  moversLimit: num('MOVERS_LIMIT', 100),
+
+  // --- High chance tab ---
+  // Markets whose Yes price sits in this band (inclusive).
+  highMin: num('HIGH_MIN', 0.6),
+  highMax: num('HIGH_MAX', 0.92),
+  highChanceLimit: num('HIGH_CHANCE_LIMIT', 200),
+
+  // --- Price history ---
+  // Only track price history for markets with at least this much volume, to keep
+  // the state file small. Snapshots older than this many hours are pruned.
+  priceTrackMinVolume: num('PRICE_TRACK_MIN_VOLUME', 1000),
+  priceHistoryMaxAgeHours: num('PRICE_HISTORY_MAX_AGE_HOURS', 90),
+  priceHistoryMaxPoints: num('PRICE_HISTORY_MAX_POINTS', 20),
 
   // --- Output & persistence ---
   outputDir: resolvePath('OUTPUT_DIR', 'public'),

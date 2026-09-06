@@ -3,6 +3,7 @@
 
 import { config } from './config.js';
 import { refresh } from './refresh.js';
+import { summarize } from './summary.js';
 import { startScheduler } from './scheduler.js';
 import { startServer } from './server.js';
 
@@ -11,7 +12,7 @@ const status = {
   lastRunAt: null,
   lastError: null,
   scheduleHours: config.scheduleHours,
-  tagSlug: config.tagSlug,
+  categories: config.categories.map((c) => c.slug),
   volumeThreshold: config.volumeThreshold,
   lastStats: null,
 };
@@ -25,7 +26,7 @@ async function task() {
     try {
       const { summary } = await refresh();
       status.lastRunAt = summary.generatedAt;
-      status.lastStats = summary.totals;
+      status.lastStats = summarize(summary);
       status.lastError = null;
       return summary;
     } catch (err) {

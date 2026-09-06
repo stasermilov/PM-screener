@@ -9,7 +9,6 @@
 // validated before use.
 
 import { config } from './config.js';
-import { normalizeEvents } from './normalize.js';
 
 async function getJson(url) {
   const controller = new AbortController();
@@ -41,7 +40,7 @@ function buildUrl(pathname, params = {}) {
  * Resolve a tag slug to its numeric id. Returns null if it can't be resolved,
  * in which case the caller falls back to slug-based filtering.
  */
-export async function resolveTagId(slug = config.tagSlug) {
+export async function resolveTagId(slug) {
   // Preferred: direct slug lookup.
   try {
     const direct = await getJson(buildUrl(`/tags/slug/${encodeURIComponent(slug)}`));
@@ -103,13 +102,12 @@ async function fetchEventsPage({ tagId, slug, limit, offset }) {
 }
 
 /**
- * Fetch and normalize every open event under the configured tag, paging until
- * exhausted or the configured cap is reached.
+ * Fetch all open events under a single tag, paging until exhausted or the
+ * configured cap is reached. Returns the raw event objects (callers normalize
+ * and/or extract markets from them).
  */
-export async function fetchGeopoliticsMarkets() {
-  const slug = config.tagSlug;
+export async function fetchRawEventsForTag(slug) {
   const tagId = await resolveTagId(slug);
-
   const raw = [];
   for (let offset = 0; offset < config.maxEvents; offset += config.pageSize) {
     const limit = Math.min(config.pageSize, config.maxEvents - offset);
@@ -117,11 +115,24 @@ export async function fetchGeopoliticsMarkets() {
     raw.push(...page);
     if (page.length < limit) break; // last page
   }
+  return { tagId, rawEvents: raw };
+}
 
-  return {
-    tagId,
-    tagSlug: slug,
-    markets: normalizeEvents(raw),
-    fetchedAt: new Date().toISOString(),
-  };
+/**
+ * Fetch every configured category. Each category is fetched independently so one
+ * failing tag doesn't sink the whole run. Returns one entry per category with
+ * its raw events (empty on failure, with an `error` note).
+ */
+export async function fetchCategories(categories = config.categories) {
+  const results = [];
+  for (const cat of categories) {
+    try {
+      const { tagId, rawEvents } = await fetchRawEventsForTag(cat.slug);
+      results.push({ ...cat, tagId, rawEvents });
+    } catch (err) {
+      console.error(`[gamma] failed to fetch "${cat.slug}": ${err.message}`);
+      results.push({ ...cat, tagId: null, rawEvents: [], error: err.message });
+    }
+  }
+  return { categories: results, fetchedAt: new Date().toISOString() };
 }
