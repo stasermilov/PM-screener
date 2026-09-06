@@ -6,11 +6,19 @@ A phone-friendly screener over several Polymarket categories, refreshed **every
 - **Category tabs** — **Geopolitics, Tech, Politics, IPO** (configurable). Each
   lists markets **added in the last 7 days**, with the ones added in the **last
   2 days** pulled into a prominent area on top, and markets **over $3,000 volume
-  highlighted in yellow** and pinned.
+  highlighted in yellow** and pinned. A category with **over 100 markets** gets
+  **1–100 / 101–200 …** pagination sub-tabs.
 - **🚀 Movers** — markets across all categories whose probability moved
   **&gt; 20 points in 24h**, plus a subsection **&gt; 30 points in 3 days**.
 - **🎯 High chance** — markets across all categories priced **60–92%**.
+- **🚫 Excluded** — an audit list of markets filtered out (see below).
 - **⭐ Watchlist** — markets you've ticked, saved in your browser.
+
+Some kinds of markets are **excluded from every tab**: markets about **X/Twitter
+posts**, **Trump insults**, and **"word said during an event"** (earnings calls,
+podcasts, speeches, debates, …). The **Excluded** tab lists each removed market
+with the **reason** and the exact **matched phrase**, so the (necessarily fuzzy)
+filter can be audited and tuned.
 
 Data comes from the public [Polymarket Gamma API](https://gamma-api.polymarket.com).
 
@@ -19,14 +27,18 @@ Data comes from the public [Polymarket Gamma API](https://gamma-api.polymarket.c
 On each cycle (and whenever you press **Update now**) the app:
 
 1. Fetches every open event for each category tag from the Gamma API.
-2. Per category: records when each market was first seen, keeps those **added in
+2. **Excludes** markets matching the built-in rules (X/Twitter posts, Trump
+   insults, words-said-during-an-event) from every tab, recording each with its
+   reason for the Excluded tab.
+3. Per category: records when each market was first seen, keeps those **added in
    the last 7 days**, and splits them **without duplication** into
    **🆕 Just added — last 2 days** (top) and **🗓️ Added 2–7 days ago** (below).
    Markets **&gt; $3,000 volume** are highlighted and pinned. (Set
-   `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.)
-3. Records a **price snapshot** for each market, then computes **Movers** and
+   `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.) Categories over 100 markets
+   are split into pagination sub-tabs.
+4. Records a **price snapshot** for each market, then computes **Movers** and
    **High chance** across all categories from that history.
-4. Renders a self-contained HTML report (`public/index.html`) plus a
+5. Renders a self-contained HTML report (`public/index.html`) plus a
    machine-readable `public/data.json`.
 
 ### Movers — a note on the "warm-up"
@@ -130,6 +142,8 @@ Everything is configurable via environment variables (defaults match the task):
 | `WINDOW_DAYS`             | `7`                                 | Rolling window: list markets added in last N days |
 | `FRESH_DAYS`              | `2`                                 | Markets newer than this go in the top "Just added" area |
 | `SHOW_ONLY_HIGHLIGHTED`   | `false`                             | If `true`, list only markets over the threshold |
+| `EXCLUDE_EXTRA`           | _(empty)_                           | Extra comma-separated keywords to exclude (on top of built-in rules) |
+| `CATEGORY_PAGE_SIZE`      | `100`                               | Category size that triggers pagination sub-tabs |
 | `MOVER_DAY_PCT`           | `20`                                | Movers: min points moved in 24h                |
 | `MOVER_3D_PCT`            | `30`                                | Movers: min points moved in 3 days             |
 | `HIGH_MIN` / `HIGH_MAX`   | `0.6` / `0.92`                      | High-chance price band (0–1)                   |
@@ -148,6 +162,7 @@ src/
   config.js        env-driven configuration (categories, thresholds, bands)
   gammaClient.js   Gamma API client (per-tag fetch across categories)
   normalize.js     raw event -> market; price extraction (pure)
+  exclude.js       exclusion rules (X posts, Trump insults, said-at-event) (pure)
   marketStore.js   first-seen state + window/fresh selection + price state (pure)
   prices.js        price-history snapshots, Movers & High-chance (pure)
   summary.js       per-category highlight/sort + model assembly (pure)
@@ -168,10 +183,10 @@ npm test
 ```
 
 Covers price coercion and Yes-price derivation, priced-market extraction, the
-first-seen reconcile, the 7-day window and fresh/earlier split, the
-highlight-and-sort rule, price-history recording/pruning, the Movers (24h +
-3‑day, with Gamma fallback) and High-chance selection, the multi-tab render, and
-HTML escaping. The interactive UI (tab switching across all tabs, the watchlist
+exclusion rules, the first-seen reconcile, the 7-day window and fresh/earlier
+split, the highlight-and-sort rule, price-history recording/pruning, the Movers
+(24h + 3‑day, with Gamma fallback) and High-chance selection, the multi-tab
+render including the Excluded tab and category pagination, and HTML escaping. The interactive UI (tab switching across all tabs, the watchlist
 tick add/remove, per-item remove, `localStorage` persistence) is verified
 separately in a headless browser.
 
@@ -182,6 +197,9 @@ separately in a headless browser.
 - Category lists screen Gamma **events** (the cards you browse) by aggregate
   volume; **Movers** and **High chance** operate on individual **markets** (the
   units that carry a Yes price).
+- Exclusions are keyword/pattern based, so they can occasionally miss or
+  over-match — the **Excluded** tab is the audit surface; adjust with
+  `EXCLUDE_EXTRA` or ask me to tune the built-in patterns.
 - If a category tab is empty, its Polymarket tag slug may differ from the default
   — adjust it via `CATEGORY_SLUGS`.
 - Movers depends on the app's own price history, so it warms up over ~3 days (see

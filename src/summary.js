@@ -55,6 +55,7 @@ export function summarize(summary) {
     moversDay: summary.movers?.day?.total ?? 0,
     movers3d: summary.movers?.threeDay?.total ?? 0,
     highChance: summary.highChance?.total ?? 0,
+    excluded: summary.excluded?.length ?? 0,
   };
 }
 
@@ -91,7 +92,7 @@ export function buildCategory(cat, threshold) {
  * @param {object} opts
  */
 export function buildSummary(input = {}, opts = {}) {
-  const { categories = [], movers = null, highChance = null } = input;
+  const { categories = [], movers = null, highChance = null, excluded = [] } = input;
   const threshold = opts.threshold ?? 3000;
   const generatedAt = opts.generatedAt instanceof Date ? opts.generatedAt : new Date();
 
@@ -101,9 +102,11 @@ export function buildSummary(input = {}, opts = {}) {
     windowDays: opts.windowDays ?? 7,
     freshDays: opts.freshDays ?? 2,
     showOnlyHighlighted: Boolean(opts.showOnlyHighlighted),
+    categoryPageSize: opts.categoryPageSize ?? 100,
     threshold,
     previousRunAt: opts.previousRunAt ?? null,
     refreshUrl: opts.refreshUrl ?? '',
+    excluded,
     categories: categories.map((c) => buildCategory(c, threshold)),
     movers: {
       dayPct: opts.moverDayPct ?? 20,

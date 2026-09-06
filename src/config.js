@@ -86,6 +86,17 @@ export const config = {
   // ones.
   showOnlyHighlighted: str('SHOW_ONLY_HIGHLIGHTED', 'false') === 'true',
 
+  // Extra case-insensitive keywords to exclude, on top of the built-in rules
+  // (X/Twitter posts, Trump insults, words-said-during-an-event). Comma list.
+  excludeExtra: str('EXCLUDE_EXTRA', '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+
+  // A category with more than this many windowed markets is split into
+  // "1-100 / 101-200 / ..." pagination sub-tabs.
+  categoryPageSize: num('CATEGORY_PAGE_SIZE', 100),
+
   // --- Movers tab ---
   // A market is a "mover" when its probability changed by at least this many
   // percentage points over the given window. Movement is measured against the

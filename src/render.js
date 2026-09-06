@@ -86,12 +86,13 @@ function watchBtn(d) {
 
 // --- Category (event) cards ---
 
-function renderEventCard(m, now, threshold) {
+function renderEventCard(m, now, threshold, opts = {}) {
+  const freshTag = opts.fresh ? '<span class="fresh-tag">🆕</span> ' : '';
   return `
       <article class="card${m.highlighted ? ' highlight' : ''}">
         <div class="card-head">
           <h3 class="card-title">
-            <a href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.title)}</a>
+            ${freshTag}<a href="${escapeHtml(m.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(m.title)}</a>
           </h3>
           ${m.highlighted ? badge(threshold) : ''}
         </div>
@@ -121,32 +122,80 @@ ${body}
       </section>`;
 }
 
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+/** Paginated flat list for a big category: 1–100 / 101–200 chips + pages. */
+function renderPaginatedCategory(cat, summary, now) {
+  const threshold = summary.threshold;
+  const pageSize = summary.categoryPageSize || 100;
+  const freshIds = new Set(cat.fresh.items.map((m) => m.id));
+  const items = [...cat.fresh.items, ...cat.earlier.items];
+  const pages = chunk(items, pageSize);
+  const group = `pg-${cat.slug}`;
+
+  const chips = pages
+    .map((_, i) => {
+      const start = i * pageSize + 1;
+      const end = Math.min((i + 1) * pageSize, items.length);
+      return `<button type="button" class="pager-chip${i === 0 ? ' active' : ''}" data-pager="${group}" data-page="${i}">${start}–${end}</button>`;
+    })
+    .join('');
+
+  const pageDivs = pages
+    .map(
+      (pg, i) => `
+        <div class="pager-page" data-pager="${group}" data-page="${i}"${i === 0 ? '' : ' hidden'}>
+          <div class="cards">
+${pg.map((m) => renderEventCard(m, now, threshold, { fresh: freshIds.has(m.id) })).join('\n')}
+          </div>
+        </div>`,
+    )
+    .join('');
+
+  return `
+      <p class="sub">${items.length} markets in the last ${summary.windowDays} days · 🆕 = added in the last ${summary.freshDays} days</p>
+      <div class="pager">${chips}</div>
+${pageDivs}`;
+}
+
 function renderCategoryView(cat, summary, now) {
   const threshold = summary.threshold;
-  const fresh = renderArea({
-    bucket: cat.fresh,
-    title: `Just added — last ${summary.freshDays} ${summary.freshDays === 1 ? 'day' : 'days'}`,
-    emoji: '🆕', badgeClass: 'area-fresh', threshold, now,
-    emptyText: `Nothing new in the last ${summary.freshDays} days. Check the list below.`,
-  });
-  const earlier = renderArea({
-    bucket: cat.earlier,
-    title: `Added ${summary.freshDays}–${summary.windowDays} days ago`,
-    emoji: '🗓️', badgeClass: 'area-earlier', threshold, now,
-    emptyText: `No markets were added ${summary.freshDays}–${summary.windowDays} days ago.`,
-  });
   const note = cat.error
     ? `<div class="empty"><p class="muted">Couldn't load this category: ${escapeHtml(cat.error)}</p></div>`
     : cat.tracked === 0
       ? `<div class="empty"><p class="muted">No open markets found for the “${escapeHtml(cat.slug)}” tag. If this stays empty, the tag slug may differ — tell me and I'll adjust it.</p></div>`
       : '';
+
+  let body;
+  if (cat.totals.windowCount > (summary.categoryPageSize || 100)) {
+    body = renderPaginatedCategory(cat, summary, now);
+  } else {
+    const fresh = renderArea({
+      bucket: cat.fresh,
+      title: `Just added — last ${summary.freshDays} ${summary.freshDays === 1 ? 'day' : 'days'}`,
+      emoji: '🆕', badgeClass: 'area-fresh', threshold, now,
+      emptyText: `Nothing new in the last ${summary.freshDays} days. Check the list below.`,
+    });
+    const earlier = renderArea({
+      bucket: cat.earlier,
+      title: `Added ${summary.freshDays}–${summary.windowDays} days ago`,
+      emoji: '🗓️', badgeClass: 'area-earlier', threshold, now,
+      emptyText: `No markets were added ${summary.freshDays}–${summary.windowDays} days ago.`,
+    });
+    body = `<p class="sub">Markets added in the last ${summary.windowDays} days${cat.tracked != null ? ` · ${cat.tracked} open markets tracked` : ''}</p>
+      ${fresh}
+      ${cat.totals.windowCount > 0 ? earlier : ''}`;
+  }
+
   return `
     <section class="view" id="view-cat-${escapeHtml(cat.slug)}" hidden>
       <h1 class="view-title">${cat.emoji} ${escapeHtml(cat.label)}</h1>
-      <p class="sub">Markets added in the last ${summary.windowDays} days${cat.tracked != null ? ` · ${cat.tracked} open markets tracked` : ''}</p>
       ${note}
-      ${fresh}
-      ${cat.totals.windowCount > 0 ? earlier : ''}
+      ${body}
     </section>`;
 }
 
@@ -241,6 +290,43 @@ ${body}
     </section>`;
 }
 
+function renderExcludedRow(x) {
+  return `
+      <article class="card excluded-card">
+        <div class="card-head">
+          <h3 class="card-title">
+            <a href="${escapeHtml(x.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(x.title)}</a>
+          </h3>
+          <span class="reason-badge reason-${escapeHtml(x.reasonId)}">${escapeHtml(x.reason)}</span>
+        </div>
+        <div class="marketmeta">
+          ${x.categoryLabel ? `<span class="cat-badge">${escapeHtml(x.categoryEmoji || '')} ${escapeHtml(x.categoryLabel)}</span> <span class="sep">·</span>` : ''}
+          <span class="muted">matched:</span> <code>${escapeHtml(x.matched)}</code>
+        </div>
+      </article>`;
+}
+
+function renderExcludedView(summary) {
+  const items = summary.excluded || [];
+  const counts = {};
+  for (const x of items) counts[x.reason] = (counts[x.reason] || 0) + 1;
+  const chips = Object.entries(counts)
+    .map(([r, n]) => `<span class="tag">${escapeHtml(r)}: ${n}</span>`)
+    .join(' ');
+  const body = items.length
+    ? items.map(renderExcludedRow).join('\n')
+    : `<div class="empty"><div class="empty-emoji">🧹</div><p>Nothing excluded this cycle.</p></div>`;
+  return `
+    <section class="view" id="view-excluded" hidden>
+      <h1 class="view-title">🚫 Excluded <span class="area-count">${items.length}</span></h1>
+      <p class="sub">Markets filtered out of every tab (X/Twitter posts, Trump insults, and "word said during an event"). Listed here so you can audit the filter. Each row shows the reason and the phrase that matched.</p>
+      ${items.length ? `<div class="tags" style="margin-bottom:14px">${chips}</div>` : ''}
+      <div class="cards">
+${body}
+      </div>
+    </section>`;
+}
+
 function renderWatchView() {
   return `
     <section class="view" id="view-watch" hidden>
@@ -264,6 +350,7 @@ function renderTabbar(summary) {
 ${catTabs}
     <button type="button" class="tab" data-view="view-movers"><span class="tab-ico">🚀</span><span>Movers</span></button>
     <button type="button" class="tab" data-view="view-highchance"><span class="tab-ico">🎯</span><span>High chance</span></button>
+    <button type="button" class="tab" data-view="view-excluded"><span class="tab-ico">🚫</span><span>Excluded</span></button>
     <button type="button" class="tab" data-view="view-watch"><span class="tab-ico">⭐</span><span>Watchlist <span id="watch-count" class="tab-badge"></span></span></button>
   </nav>`;
 }
@@ -334,6 +421,17 @@ export function renderHtml(summary, opts = {}) {
       color: #3a2f00; padding: 4px 10px; border-radius: 999px; }
     .cat-badge { flex: none; font-size: 12px; white-space: nowrap; background: var(--chip); color: var(--muted);
       padding: 3px 9px; border-radius: 999px; }
+    .fresh-tag { font-size: 12px; }
+    .pager { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 16px; }
+    .pager-chip { font: inherit; font-size: 13px; cursor: pointer; background: var(--panel); color: var(--text);
+      border: 1px solid var(--border); border-radius: 999px; padding: 6px 13px; }
+    .pager-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .reason-badge { flex: none; font-size: 12px; font-weight: 600; white-space: nowrap; padding: 3px 9px;
+      border-radius: 999px; background: var(--chip); color: var(--muted); }
+    .reason-x-posts { background: #e0f2fe; color: #075985; }
+    .reason-trump-insults { background: #fee2e2; color: #991b1b; }
+    .reason-said-during-event { background: #ede9fe; color: #5b21b6; }
+    .excluded-card code { background: var(--chip); padding: 1px 6px; border-radius: 6px; }
     .volume { font-size: 19px; font-weight: 700; margin: 8px 0 4px; }
     .volume-label { font-size: 13px; font-weight: 400; color: var(--muted); }
     .marketmeta { font-size: 14px; margin: 8px 0 2px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -394,6 +492,7 @@ export function renderHtml(summary, opts = {}) {
 ${categoryViews}
 ${renderMoversView(summary)}
 ${renderHighChanceView(summary)}
+${renderExcludedView(summary)}
 ${renderWatchView()}
     </main>
 
@@ -528,6 +627,21 @@ ${renderTabbar(summary)}
           });
         }
         save(list); syncFor(id); renderWatch(); counts();
+      });
+    });
+
+    // Per-category pagination chips (1-100 / 101-200 / ...).
+    Array.prototype.slice.call(document.querySelectorAll('.pager-chip')).forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        var group = chip.getAttribute('data-pager');
+        var page = chip.getAttribute('data-page');
+        Array.prototype.slice.call(document.querySelectorAll('.pager-page')).forEach(function (p) {
+          if (p.getAttribute('data-pager') === group) p.hidden = p.getAttribute('data-page') !== page;
+        });
+        Array.prototype.slice.call(document.querySelectorAll('.pager-chip')).forEach(function (c) {
+          if (c.getAttribute('data-pager') === group) c.classList.toggle('active', c === chip);
+        });
+        window.scrollTo(0, 0);
       });
     });
 

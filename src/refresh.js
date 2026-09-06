@@ -11,6 +11,7 @@ import { fetchCategories } from './gammaClient.js';
 import { normalizeEvents, extractPricedMarkets } from './normalize.js';
 import { loadState, saveState, reconcileSeen, selectWithinWindow, partitionByFreshness } from './marketStore.js';
 import { recordPrices, buildMovers, buildHighChance } from './prices.js';
+import { classifyExclusion } from './exclude.js';
 import { buildSummary } from './summary.js';
 import { renderHtml } from './render.js';
 
@@ -36,13 +37,40 @@ export async function refresh(deps = {}) {
     showOnlyHighlighted: config.showOnlyHighlighted,
   };
 
+  const extra = config.excludeExtra;
+  const rawEventId = (ev) => String(ev?.id ?? ev?.slug ?? '');
+
   let seen = state.seen || {};
   const categoryResults = [];
   const allMarketsById = new Map(); // rawId -> priced market (deduped across categories)
+  const excluded = [];
+  const excludedSeen = new Set(); // dedupe excluded audit rows across categories
 
   for (const cat of fetched) {
+    const catMeta = { category: cat.slug, categoryLabel: cat.label, categoryEmoji: cat.emoji };
+
+    // Event-level exclusion (removes the card and all its markets everywhere).
     const events = normalizeEvents(cat.rawEvents);
-    const rec = reconcileSeen(seen, events, { now });
+    const keptEvents = [];
+    const excludedEventIds = new Set();
+    for (const ev of events) {
+      const hit = classifyExclusion(`${ev.title} ${ev.description || ''}`, extra);
+      if (hit) {
+        excludedEventIds.add(ev.id);
+        const key = `ev:${ev.id}`;
+        if (!excludedSeen.has(key)) {
+          excludedSeen.add(key);
+          excluded.push({
+            kind: 'event', id: key, title: ev.title, url: ev.url, volume: ev.volume,
+            reason: hit.label, reasonId: hit.id, matched: hit.matched, ...catMeta,
+          });
+        }
+      } else {
+        keptEvents.push(ev);
+      }
+    }
+
+    const rec = reconcileSeen(seen, keptEvents, { now });
     seen = rec.nextSeen; // thread forward so later categories keep earlier ones
 
     const recent = selectWithinWindow(rec.items, windowOpts);
@@ -53,12 +81,26 @@ export async function refresh(deps = {}) {
       label: cat.label,
       emoji: cat.emoji,
       error: cat.error || null,
-      eventsTracked: events.length,
+      eventsTracked: keptEvents.length,
       freshEvents: fresh,
       earlierEvents: earlier,
     });
 
-    for (const m of extractPricedMarkets(cat.rawEvents, cat)) {
+    // Market-level: skip markets inside excluded events, and exclude individual
+    // markets whose own question matches a rule (e.g. "will he say 'X'?").
+    const keptRaw = (cat.rawEvents || []).filter((ev) => !excludedEventIds.has(rawEventId(ev)));
+    for (const m of extractPricedMarkets(keptRaw, cat)) {
+      const hit = classifyExclusion(m.question, extra);
+      if (hit) {
+        if (!excludedSeen.has(m.id)) {
+          excludedSeen.add(m.id);
+          excluded.push({
+            kind: 'market', id: m.id, title: m.question, url: m.url, volume: m.volume,
+            reason: hit.label, reasonId: hit.id, matched: hit.matched, ...catMeta,
+          });
+        }
+        continue;
+      }
       if (!allMarketsById.has(m.rawId)) allMarketsById.set(m.rawId, m);
     }
   }
@@ -89,13 +131,14 @@ export async function refresh(deps = {}) {
   });
 
   const summary = buildSummary(
-    { categories: categoryResults, movers, highChance },
+    { categories: categoryResults, movers, highChance, excluded },
     {
       threshold: config.volumeThreshold,
       scheduleHours: config.scheduleHours,
       windowDays: config.windowDays,
       freshDays: config.freshDays,
       showOnlyHighlighted: config.showOnlyHighlighted,
+      categoryPageSize: config.categoryPageSize,
       generatedAt: now,
       previousRunAt,
       refreshUrl: config.workflowUrl,

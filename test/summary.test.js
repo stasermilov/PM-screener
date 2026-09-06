@@ -23,11 +23,14 @@ function sampleSummary() {
   const highChance = {
     total: 1, items: [{ id: 'mk:h1', rawId: 'h1', question: 'High A', url: '#', chance: 0.8, volume: 4000, categoryLabel: 'Politics', categoryEmoji: '🏛️' }],
   };
+  const excluded = [
+    { kind: 'event', id: 'ev:x1', title: 'How many times will Elon tweet?', url: '#', volume: 100, reason: 'X / Twitter post', reasonId: 'x-posts', matched: 'tweet', category: 'tech', categoryLabel: 'Tech', categoryEmoji: '💻' },
+  ];
   return buildSummary(
-    { categories: [geo, tech], movers, highChance },
+    { categories: [geo, tech], movers, highChance, excluded },
     {
       threshold: 3000, windowDays: 7, freshDays: 2, generatedAt: GEN,
-      moverDayPct: 20, mover3dPct: 30, highMin: 0.6, highMax: 0.92,
+      moverDayPct: 20, mover3dPct: 30, highMin: 0.6, highMax: 0.92, categoryPageSize: 100,
       refreshUrl: 'https://github.com/o/r/actions/workflows/geopolitics-summary.yml',
     },
   );
@@ -85,4 +88,31 @@ test('an empty category shows a helpful "no markets" note', () => {
   const html = renderHtml(sampleSummary(), { now: GEN });
   assert.ok(html.includes('No open markets found'));
   assert.ok(html.includes(formatUsd(3000)));
+});
+
+test('Excluded tab lists excluded markets with reason and matched phrase', () => {
+  const s = sampleSummary();
+  assert.equal(s.excluded.length, 1);
+  const html = renderHtml(s, { now: GEN });
+  assert.ok(html.includes('data-view="view-excluded"'), 'has an Excluded tab');
+  assert.ok(html.includes('id="view-excluded"'));
+  assert.ok(html.includes('How many times will Elon tweet?'), 'lists the excluded market');
+  assert.ok(html.includes('X / Twitter post'), 'shows the reason');
+  assert.ok(html.includes('<code>tweet</code>'), 'shows the matched phrase');
+});
+
+test('a category with more than 100 markets renders pagination chips', () => {
+  const many = Array.from({ length: 130 }, (_, i) => ({
+    id: String(1000 + i), title: `Market ${i}`, url: '#', volume: 10, tags: [], createdAt: GEN.toISOString(),
+  }));
+  const cat = {
+    slug: 'politics', label: 'Politics', emoji: '🏛️', eventsTracked: 130,
+    freshEvents: many.slice(0, 10), earlierEvents: many.slice(10),
+  };
+  const s = buildSummary({ categories: [cat] }, { threshold: 3000, windowDays: 7, freshDays: 2, categoryPageSize: 100, generatedAt: GEN });
+  const html = renderHtml(s, { now: GEN });
+  assert.ok(html.includes('class="pager"'), 'renders a pager');
+  assert.ok(html.includes('data-pager="pg-politics"'));
+  assert.ok(html.includes('>1–100<'), 'first page chip');
+  assert.ok(html.includes('>101–130<'), 'second page chip');
 });
