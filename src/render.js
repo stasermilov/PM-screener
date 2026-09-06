@@ -445,6 +445,7 @@ export function renderHtml(summary, opts = {}) {
     .reason-x-posts { background: #e0f2fe; color: #075985; }
     .reason-trump-insults { background: #fee2e2; color: #991b1b; }
     .reason-mentions { background: #fef3c7; color: #92400e; }
+    .reason-midterms-elections { background: #d1fae5; color: #065f46; }
     .reason-said-during-event { background: #ede9fe; color: #5b21b6; }
     .excluded-card code { background: var(--chip); padding: 1px 6px; border-radius: 6px; }
     .volume { font-size: 19px; font-weight: 700; margin: 8px 0 4px; }

@@ -23,6 +23,15 @@ test('excludes "mentions" markets', () => {
   assert.ok(/mentions?/i.test(hit.matched));
 });
 
+test('excludes midterms / house elections markets', () => {
+  assert.equal(classifyExclusion('2026 US midterms prediction').id, 'midterms-elections');
+  assert.equal(classifyExclusion('Who wins the midterm elections?').id, 'midterms-elections');
+  assert.equal(classifyExclusion('House election results by state').id, 'midterms-elections');
+  const hit = classifyExclusion('2026 midterms winner');
+  assert.equal(hit.label, 'Midterms / House elections');
+  assert.ok(/midterms?/i.test(hit.matched));
+});
+
 test('excludes "word said during an event" markets', () => {
   assert.equal(classifyExclusion("How many times will Powell say 'inflation'?").id, 'said-during-event');
   assert.equal(classifyExclusion("Will Elon say 'Mars' on the Q2 earnings call?").id, 'said-during-event');

@@ -39,6 +39,14 @@ export const EXCLUSION_RULES = [
     ],
   },
   {
+    id: 'midterms-elections',
+    label: 'Midterms / House elections',
+    patterns: [
+      /\bmidterms?\b/i,
+      /\bhouse\s+elections?\b/i,
+    ],
+  },
+  {
     id: 'said-during-event',
     label: 'Word said during an event',
     patterns: [
