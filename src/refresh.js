@@ -10,7 +10,7 @@ import { fetchGeopoliticsMarkets } from './gammaClient.js';
 import {
   loadState,
   saveState,
-  reconcileAll,
+  reconcile,
   selectWithinWindow,
   partitionByFreshness,
 } from './marketStore.js';
@@ -31,11 +31,11 @@ export async function refresh(deps = {}) {
   const state = await loadState(config.stateFile);
   const previousRunAt = state.lastRunAt;
 
-  const { markets, submarkets = [], tagSlug } = await fetchMarkets();
+  const { markets, tagSlug } = await fetchMarkets();
 
   // Record when each market was first seen (stable timestamp), then keep only
   // those added within the rolling window that meet the criteria.
-  const reconciled = reconcileAll(state, { events: markets, submarkets }, { now });
+  const reconciled = reconcile(state, markets, { now });
   const nextState = reconciled.nextState;
 
   const windowOpts = {
@@ -45,20 +45,15 @@ export async function refresh(deps = {}) {
     showOnlyHighlighted: config.showOnlyHighlighted,
   };
   const recentEvents = selectWithinWindow(reconciled.events, windowOpts);
-  const recentSubmarkets = selectWithinWindow(reconciled.submarkets, windowOpts);
 
-  // Split each list into a fresh (last freshDays) group and the rest.
-  const freshOpts = { now, freshDays: config.freshDays };
-  const evParts = partitionByFreshness(recentEvents, freshOpts);
-  const smParts = partitionByFreshness(recentSubmarkets, freshOpts);
+  // Split into a fresh (last freshDays) group and the rest.
+  const { fresh, earlier } = partitionByFreshness(recentEvents, {
+    now,
+    freshDays: config.freshDays,
+  });
 
   const summary = buildSummary(
-    {
-      freshEvents: evParts.fresh,
-      earlierEvents: evParts.earlier,
-      freshSubmarkets: smParts.fresh,
-      earlierSubmarkets: smParts.earlier,
-    },
+    { freshEvents: fresh, earlierEvents: earlier },
     {
       threshold: config.volumeThreshold,
       scheduleHours: config.scheduleHours,
@@ -68,7 +63,6 @@ export async function refresh(deps = {}) {
       generatedAt: now,
       tagSlug: tagSlug || config.tagSlug,
       eventsTracked: markets.length,
-      submarketsTracked: submarkets.length,
       previousRunAt,
       refreshUrl: config.workflowUrl,
     },

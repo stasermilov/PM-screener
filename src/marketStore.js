@@ -18,7 +18,6 @@ function emptyState() {
     firstRunAt: null,
     lastRunAt: null,
     seen: {}, // event-level markets
-    seenSubmarkets: {}, // individual sub-markets
   };
 }
 
@@ -27,12 +26,7 @@ export async function loadState(stateFile) {
     const raw = await fs.readFile(stateFile, 'utf8');
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return emptyState();
-    return {
-      ...emptyState(),
-      ...parsed,
-      seen: parsed.seen || {},
-      seenSubmarkets: parsed.seenSubmarkets || {},
-    };
+    return { ...emptyState(), ...parsed, seen: parsed.seen || {} };
   } catch (err) {
     if (err.code === 'ENOENT') return emptyState();
     throw err;
@@ -50,8 +44,7 @@ export async function saveState(stateFile, state) {
  * the advanced seen map (current items refreshed, absent ones carried forward
  * until they age out). Pure — does no I/O.
  *
- * Works for both events and sub-markets — items only need `id`, `createdAt`,
- * and a display title (`title` or `question`).
+ * Items only need `id`, `createdAt`, and a display `title`.
  */
 export function reconcileSeen(seen, items, opts = {}) {
   const now = opts.now instanceof Date ? opts.now : new Date();
@@ -132,22 +125,19 @@ export function partitionByFreshness(items, opts = {}) {
 }
 
 /**
- * Reconcile events and sub-markets against their own seen maps and return one
- * next state carrying both. Attaches the annotated item lists for the caller to
- * window-filter.
+ * Reconcile events against the saved seen map and return the annotated item
+ * list plus the next state to persist.
  */
-export function reconcileAll(state, { events = [], submarkets = [] }, opts = {}) {
+export function reconcile(state, events = [], opts = {}) {
   const nowIso = (opts.now instanceof Date ? opts.now : new Date()).toISOString();
   const ev = reconcileSeen(state.seen || {}, events, opts);
-  const sm = reconcileSeen(state.seenSubmarkets || {}, submarkets, opts);
 
   const nextState = {
     version: STATE_VERSION,
     firstRunAt: state.firstRunAt || nowIso,
     lastRunAt: nowIso,
     seen: ev.nextSeen,
-    seenSubmarkets: sm.nextSeen,
   };
 
-  return { events: ev.items, submarkets: sm.items, nextState };
+  return { events: ev.items, nextState };
 }

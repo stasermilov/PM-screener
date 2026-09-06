@@ -43,39 +43,22 @@ export function buildSection(items, { threshold = 3000, totalTracked = null } = 
 }
 
 /**
- * Build the full summary model. Items are already split by the caller into a
+ * Build the full summary model. Events are already split by the caller into a
  * "fresh" bucket (added within freshDays) and an "earlier" bucket (the rest of
- * the window); each bucket has an events group and a sub-markets group.
+ * the window). Each bucket is a single {stats, items} group.
  *
  * @param {object} input
- * @param {object[]} input.freshEvents       events added within freshDays
- * @param {object[]} input.earlierEvents      events added earlier in the window
- * @param {object[]} input.freshSubmarkets    sub-markets added within freshDays
- * @param {object[]} input.earlierSubmarkets  sub-markets added earlier
+ * @param {object[]} input.freshEvents    events added within freshDays
+ * @param {object[]} input.earlierEvents  events added earlier in the window
  * @param {object} opts
  */
 export function buildSummary(input = {}, opts = {}) {
-  const {
-    freshEvents = [],
-    earlierEvents = [],
-    freshSubmarkets = [],
-    earlierSubmarkets = [],
-  } = input;
+  const { freshEvents = [], earlierEvents = [] } = input;
   const threshold = opts.threshold ?? 3000;
   const generatedAt = opts.generatedAt instanceof Date ? opts.generatedAt : new Date();
 
-  const fresh = {
-    events: buildSection(freshEvents, { threshold }),
-    submarkets: buildSection(freshSubmarkets, { threshold }),
-  };
-  const earlier = {
-    events: buildSection(earlierEvents, { threshold }),
-    submarkets: buildSection(earlierSubmarkets, { threshold }),
-  };
-
-  const count = (bucket) => bucket.events.stats.newCount + bucket.submarkets.stats.newCount;
-  const highlighted = (bucket) =>
-    bucket.events.stats.highlightedCount + bucket.submarkets.stats.highlightedCount;
+  const fresh = buildSection(freshEvents, { threshold });
+  const earlier = buildSection(earlierEvents, { threshold });
 
   return {
     generatedAt: generatedAt.toISOString(),
@@ -87,15 +70,12 @@ export function buildSummary(input = {}, opts = {}) {
     tagSlug: opts.tagSlug ?? 'geopolitics',
     previousRunAt: opts.previousRunAt ?? null,
     refreshUrl: opts.refreshUrl ?? '',
-    tracked: {
-      events: opts.eventsTracked ?? null,
-      submarkets: opts.submarketsTracked ?? null,
-    },
+    tracked: { events: opts.eventsTracked ?? null },
     totals: {
-      freshCount: count(fresh),
-      earlierCount: count(earlier),
-      windowCount: count(fresh) + count(earlier),
-      highlightedCount: highlighted(fresh) + highlighted(earlier),
+      freshCount: fresh.stats.newCount,
+      earlierCount: earlier.stats.newCount,
+      windowCount: fresh.stats.newCount + earlier.stats.newCount,
+      highlightedCount: fresh.stats.highlightedCount + earlier.stats.highlightedCount,
     },
     fresh,
     earlier,

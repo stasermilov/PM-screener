@@ -4,7 +4,8 @@ An app that summarizes **markets added under the _Geopolitics_ category on
 Polymarket in the last 7 days**, refreshed **every 6 hours** (and on demand via
 an **Update** button). Markets added in the **last 2 days** get their own
 prominent area at the top, and markets with **over $3,000 volume are highlighted
-in yellow and pinned to the top** of each list.
+in yellow and pinned to the top** of each list. A **Watchlist** tab lets you
+save markets to follow (stored in your browser).
 
 Data comes from the public [Polymarket Gamma API](https://gamma-api.polymarket.com).
 
@@ -18,14 +19,24 @@ On each cycle (and whenever you press **Update now**) the app:
 3. Splits them into two areas so the newest stand out, **without duplication**:
    - **🆕 Just added — last 2 days** (top, highlighted area).
    - **🗓️ Added 2–7 days ago** (below).
-   Each area is broken into **Markets** (the event cards you browse on
-   Polymarket) and **Sub-markets** (the individual outcome markets inside each
-   event).
-4. Applies the highlight rule within **every group**: any item with **volume
-   &gt; $3,000** is highlighted in yellow and sorted to the top; the rest follow
-   by volume. (Set `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.)
+4. Applies the highlight rule: any market with **volume &gt; $3,000** is
+   highlighted in yellow and sorted to the top; the rest follow by volume.
+   (Set `SHOW_ONLY_HIGHLIGHTED=true` to hide the rest.)
 5. Renders a self-contained HTML report (`public/index.html`) plus a
    machine-readable `public/data.json`.
+
+### Watchlist
+
+The page has two tabs in a bottom bar: **🌍 Geopolitics** (the generated list)
+and **⭐ Watchlist**. Every market card has a **✓ Watchlist** tick — tap to add,
+tap again to remove. The Watchlist tab lists the markets you've added, in the
+order you added them, each with its own **Remove** button.
+
+The watchlist is stored in your browser's `localStorage`, so it is **per device
+and per browser** — it survives refreshes and the 6‑hourly redeploys, but is not
+shared between devices and never leaves your browser. Each market's details are
+saved when you add it, so it stays in your watchlist even after it ages out of
+the 7‑day list.
 
 ### The "Update now" button
 
@@ -122,10 +133,10 @@ Everything is configurable via environment variables (defaults match the task):
 src/
   config.js        env-driven configuration
   gammaClient.js   Gamma API client (tag resolution + paging)
-  normalize.js     raw event -> normalized market + sub-markets (pure)
+  normalize.js     raw event -> normalized market (pure)
   marketStore.js   first-seen state + rolling-window selection (pure)
-  summary.js       highlight rule, sorting, per-section stats (pure)
-  render.js        HTML report renderer + Update button (pure)
+  summary.js       highlight rule, sorting, per-area stats (pure)
+  render.js        HTML report + watchlist/tabs + Update button (pure)
   refresh.js       one full cycle: fetch -> select -> render -> persist
   scheduler.js     drift-safe 6-hour scheduler
   server.js        zero-dep HTTP server (serves report, /run refresh)
@@ -141,18 +152,20 @@ test/              node:test unit tests + fixtures
 npm test
 ```
 
-Covers volume/date coercion, sub-market flattening, the first-seen reconcile,
-the 7-day window selection, the highlight-and-sort rule, HTML escaping, the
-Update button/URL, and the scheduler math.
+Covers volume/date coercion, the first-seen reconcile, the 7-day window
+selection, the fresh/earlier split, the highlight-and-sort rule, HTML escaping,
+the Update button/URL and watchlist markup, and the scheduler math. The
+watchlist's interactive behaviour (add/remove tick, tab switching, per-item
+remove, `localStorage` persistence) is verified separately in a headless
+browser.
 
 ## Notes & disclaimer
 
 - The `>$3,000` threshold is **exclusive** (a market at exactly $3,000 is not
   highlighted), matching "over $3,000".
-- A Polymarket "market" card is a Gamma **event**; the _Newly added markets_
-  section screens events and uses each event's aggregate volume (falling back to
-  summing child markets). The _Newly added sub-markets_ section screens the
-  individual markets inside those events and uses each one's own volume, so the
-  $3,000 rule is applied at both levels.
+- A Polymarket "market" card is a Gamma **event**; the app screens events and
+  uses each event's aggregate volume (falling back to summing child markets).
+- The watchlist lives only in your browser (`localStorage`) — per device, not
+  shared, and never sent anywhere.
 - Not affiliated with Polymarket. For informational purposes only; not
   financial advice.

@@ -4,15 +4,15 @@ import assert from 'node:assert/strict';
 import {
   reconcileSeen,
   selectWithinWindow,
-  reconcileAll,
+  reconcile,
   addedAt,
   partitionByFreshness,
 } from '../src/marketStore.js';
-import { normalizeEvents, normalizeSubmarkets } from '../src/normalize.js';
+import { normalizeEvents } from '../src/normalize.js';
 import { rawEvents } from './fixtures.js';
 
 function emptyState() {
-  return { version: 1, firstRunAt: null, lastRunAt: null, seen: {}, seenSubmarkets: {} };
+  return { version: 1, firstRunAt: null, lastRunAt: null, seen: {} };
 }
 
 test('reconcileSeen annotates firstSeenAt and preserves it across runs', () => {
@@ -94,16 +94,11 @@ test('partitionByFreshness splits into fresh/earlier with no overlap', () => {
   assert.equal(overlap.length, 0);
 });
 
-test('reconcileAll returns both seen maps and annotated lists', () => {
+test('reconcile returns the seen map and annotated event list', () => {
   const now = new Date('2026-08-31T12:00:00Z');
   const raw = rawEvents(now.toISOString());
-  const out = reconcileAll(
-    emptyState(),
-    { events: normalizeEvents(raw), submarkets: normalizeSubmarkets(raw) },
-    { now },
-  );
+  const out = reconcile(emptyState(), normalizeEvents(raw), { now });
   assert.equal(out.events.length, 5);
-  assert.equal(out.submarkets.length, 4);
   assert.equal(Object.keys(out.nextState.seen).length, 5);
-  assert.equal(Object.keys(out.nextState.seenSubmarkets).length, 4);
+  assert.equal(out.nextState.seenSubmarkets, undefined); // no sub-market tracking
 });
