@@ -14,6 +14,15 @@ test('excludes Trump insult / nickname markets', () => {
   assert.equal(classifyExclusion('Which nickname will Trump use for DeSantis?').id, 'trump-insults');
 });
 
+test('excludes "mentions" markets', () => {
+  assert.equal(classifyExclusion('Trump mentions by cable news today?').id, 'mentions');
+  assert.equal(classifyExclusion('How many times will Biden be mentioned?').id, 'mentions');
+  assert.equal(classifyExclusion('Elon Musk mention count this week').id, 'mentions');
+  const hit = classifyExclusion('Trump mentions by cable news today?');
+  assert.equal(hit.label, 'Mentions market');
+  assert.ok(/mentions?/i.test(hit.matched));
+});
+
 test('excludes "word said during an event" markets', () => {
   assert.equal(classifyExclusion("How many times will Powell say 'inflation'?").id, 'said-during-event');
   assert.equal(classifyExclusion("Will Elon say 'Mars' on the Q2 earnings call?").id, 'said-during-event');

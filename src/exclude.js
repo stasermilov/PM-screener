@@ -1,6 +1,7 @@
 // Market exclusion rules. Certain kinds of markets are filtered out of every
 // category (and out of Movers / High chance): markets about X/Twitter posts,
-// Trump insults, and "will <person> say <word> during <event>" style markets.
+// Trump insults, "mentions" markets, and "will <person> say <word> during
+// <event>" style markets.
 //
 // The matching is heuristic by nature, so every exclusion records the rule and
 // the exact matched phrase — the "Excluded" tab surfaces these for auditing, and
@@ -28,6 +29,13 @@ export const EXCLUSION_RULES = [
       /\btrump\b[^.?!]*\b(insults?|nickname|name[-\s]?call\w*)\b/i,
       /\b(insults?|nickname)\b[^.?!]*\btrump\b/i,
       /\btrump\b[^.?!]*\bcall(s|ed)?\b[^.?!]*\b(crooked|sleepy|crazy|nasty|weak|loser|lyin'?|low[-\s]?iq|failed|fake|horseface|birdbrain|tampon)\b/i,
+    ],
+  },
+  {
+    id: 'mentions',
+    label: 'Mentions market',
+    patterns: [
+      /\bmention(?:s|ed)?\b/i,
     ],
   },
   {
