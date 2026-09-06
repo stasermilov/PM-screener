@@ -282,6 +282,9 @@ export function renderHtml(summary, opts = {}) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Best-effort: ask browsers to revalidate so new deploys aren't masked by cache. -->
+  <meta http-equiv="Cache-Control" content="no-cache, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
   <title>Polymarket Screener</title>
   <style>
     :root {
