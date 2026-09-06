@@ -128,15 +128,9 @@ function chunk(arr, size) {
   return out;
 }
 
-/** Paginated flat list for a big category: 1–100 / 101–200 chips + pages. */
-function renderPaginatedCategory(cat, summary, now) {
-  const threshold = summary.threshold;
-  const pageSize = summary.categoryPageSize || 100;
-  const freshIds = new Set(cat.fresh.items.map((m) => m.id));
-  const items = [...cat.fresh.items, ...cat.earlier.items];
+/** Generic paginated list: 1–100 / 101–200 chips + pages. */
+function renderPaginated(group, items, pageSize, renderItem) {
   const pages = chunk(items, pageSize);
-  const group = `pg-${cat.slug}`;
-
   const chips = pages
     .map((_, i) => {
       const start = i * pageSize + 1;
@@ -150,16 +144,30 @@ function renderPaginatedCategory(cat, summary, now) {
       (pg, i) => `
         <div class="pager-page" data-pager="${group}" data-page="${i}"${i === 0 ? '' : ' hidden'}>
           <div class="cards">
-${pg.map((m) => renderEventCard(m, now, threshold, { fresh: freshIds.has(m.id) })).join('\n')}
+${pg.map(renderItem).join('\n')}
           </div>
         </div>`,
     )
     .join('');
 
+  return `<div class="pager">${chips}</div>\n${pageDivs}`;
+}
+
+/** Paginated flat list for a big category: 1–100 / 101–200 chips + pages. */
+function renderPaginatedCategory(cat, summary, now) {
+  const threshold = summary.threshold;
+  const pageSize = summary.categoryPageSize || 100;
+  const freshIds = new Set(cat.fresh.items.map((m) => m.id));
+  const items = [...cat.fresh.items, ...cat.earlier.items];
+  const group = `pg-${cat.slug}`;
+
+  const body = renderPaginated(group, items, pageSize, (m) =>
+    renderEventCard(m, now, threshold, { fresh: freshIds.has(m.id) }),
+  );
+
   return `
       <p class="sub">${items.length} markets in the last ${summary.windowDays} days · 🆕 = added in the last ${summary.freshDays} days</p>
-      <div class="pager">${chips}</div>
-${pageDivs}`;
+      ${body}`;
 }
 
 function renderCategoryView(cat, summary, now) {
@@ -239,16 +247,22 @@ function renderMarketList(items, threshold, opts) {
 
 function renderMoversView(summary) {
   const t = summary.threshold;
+  const pageSize = summary.categoryPageSize || 100;
   const d = summary.movers.day;
   const td = summary.movers.threeDay;
   const warm = 'Nothing here yet. Moves are measured from the app\'s own price snapshots, so 24h fills in after ~a day of runs and 3-day after ~3 days.';
+  const renderOne = (m) => renderMarketCard(m, t, { showChange: true });
 
-  const dayBody = d.items.length
-    ? renderMarketList(d.items, t, { showChange: true })
-    : `<div class="empty"><p class="muted">${escapeHtml(warm)}</p></div>`;
-  const tdBody = td.items.length
-    ? renderMarketList(td.items, t, { showChange: true })
-    : `<div class="empty"><p class="muted">${escapeHtml(warm)}</p></div>`;
+  const dayBody = !d.items.length
+    ? `<div class="empty"><p class="muted">${escapeHtml(warm)}</p></div>`
+    : d.items.length > pageSize
+      ? renderPaginated('pg-movers-day', d.items, pageSize, renderOne)
+      : `<div class="cards">${renderMarketList(d.items, t, { showChange: true })}</div>`;
+  const tdBody = !td.items.length
+    ? `<div class="empty"><p class="muted">${escapeHtml(warm)}</p></div>`
+    : td.items.length > pageSize
+      ? renderPaginated('pg-movers-3d', td.items, pageSize, renderOne)
+      : `<div class="cards">${renderMarketList(td.items, t, { showChange: true })}</div>`;
 
   const cap = (grp) => (grp.total > grp.items.length ? ` <span class="area-count">showing top ${grp.items.length} of ${grp.total}</span>` : ` <span class="area-count">${grp.total}</span>`);
 
@@ -258,24 +272,25 @@ function renderMoversView(summary) {
       <p class="sub">Biggest probability swings across all categories.</p>
       <section class="area">
         <h2 class="area-title">Moved &gt; ${summary.movers.dayPct} pts in 24h${cap(d)}</h2>
-        <div class="cards">
 ${dayBody}
-        </div>
       </section>
       <section class="area">
         <h2 class="area-title">Moved &gt; ${summary.movers.threeDayPct} pts in 3 days${cap(td)}</h2>
-        <div class="cards">
 ${tdBody}
-        </div>
       </section>
     </section>`;
 }
 
 function renderHighChanceView(summary) {
   const h = summary.highChance;
-  const body = h.items.length
-    ? renderMarketList(h.items, summary.threshold, { showChange: false })
-    : `<div class="empty"><p class="muted">No markets are currently priced ${pctStr(h.min)}–${pctStr(h.max)}.</p></div>`;
+  const pageSize = summary.categoryPageSize || 100;
+  const t = summary.threshold;
+  const renderOne = (m) => renderMarketCard(m, t, { showChange: false });
+  const body = !h.items.length
+    ? `<div class="empty"><p class="muted">No markets are currently priced ${pctStr(h.min)}–${pctStr(h.max)}.</p></div>`
+    : h.items.length > pageSize
+      ? renderPaginated('pg-highchance', h.items, pageSize, renderOne)
+      : `<div class="cards">${renderMarketList(h.items, t, { showChange: false })}</div>`;
   const cap = h.total > h.items.length ? `<span class="area-count">showing top ${h.items.length} of ${h.total}</span>` : `<span class="area-count">${h.total}</span>`;
   return `
     <section class="view" id="view-highchance" hidden>
@@ -283,9 +298,7 @@ function renderHighChanceView(summary) {
       <p class="sub">Markets priced between ${pctStr(h.min)} and ${pctStr(h.max)}, across all categories.</p>
       <section class="area">
         <h2 class="area-title">Priced ${pctStr(h.min)}–${pctStr(h.max)} ${cap}</h2>
-        <div class="cards">
 ${body}
-        </div>
       </section>
     </section>`;
 }
@@ -308,22 +321,23 @@ function renderExcludedRow(x) {
 
 function renderExcludedView(summary) {
   const items = summary.excluded || [];
+  const pageSize = summary.categoryPageSize || 100;
   const counts = {};
   for (const x of items) counts[x.reason] = (counts[x.reason] || 0) + 1;
   const chips = Object.entries(counts)
     .map(([r, n]) => `<span class="tag">${escapeHtml(r)}: ${n}</span>`)
     .join(' ');
-  const body = items.length
-    ? items.map(renderExcludedRow).join('\n')
-    : `<div class="empty"><div class="empty-emoji">🧹</div><p>Nothing excluded this cycle.</p></div>`;
+  const body = !items.length
+    ? `<div class="empty"><div class="empty-emoji">🧹</div><p>Nothing excluded this cycle.</p></div>`
+    : items.length > pageSize
+      ? renderPaginated('pg-excluded', items, pageSize, renderExcludedRow)
+      : `<div class="cards">${items.map(renderExcludedRow).join('\n')}</div>`;
   return `
     <section class="view" id="view-excluded" hidden>
       <h1 class="view-title">🚫 Excluded <span class="area-count">${items.length}</span></h1>
-      <p class="sub">Markets filtered out of every tab (X/Twitter posts, Trump insults, and "word said during an event"). Listed here so you can audit the filter. Each row shows the reason and the phrase that matched.</p>
+      <p class="sub">Markets filtered out of every tab (X/Twitter posts, Trump insults, mentions, and "word said during an event"). Listed here so you can audit the filter. Each row shows the reason and the phrase that matched.</p>
       ${items.length ? `<div class="tags" style="margin-bottom:14px">${chips}</div>` : ''}
-      <div class="cards">
 ${body}
-      </div>
     </section>`;
 }
 
@@ -430,6 +444,7 @@ export function renderHtml(summary, opts = {}) {
       border-radius: 999px; background: var(--chip); color: var(--muted); }
     .reason-x-posts { background: #e0f2fe; color: #075985; }
     .reason-trump-insults { background: #fee2e2; color: #991b1b; }
+    .reason-mentions { background: #fef3c7; color: #92400e; }
     .reason-said-during-event { background: #ede9fe; color: #5b21b6; }
     .excluded-card code { background: var(--chip); padding: 1px 6px; border-radius: 6px; }
     .volume { font-size: 19px; font-weight: 700; margin: 8px 0 4px; }

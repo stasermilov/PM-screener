@@ -101,6 +101,33 @@ test('Excluded tab lists excluded markets with reason and matched phrase', () =>
   assert.ok(html.includes('<code>tweet</code>'), 'shows the matched phrase');
 });
 
+test('Movers/High-chance/Excluded paginate when over 100 items', () => {
+  const mkMovers = (n) => Array.from({ length: n }, (_, i) => ({
+    id: `mk:mv${i}`, rawId: `mv${i}`, question: `Mover ${i}`, url: '#',
+    chance: 0.5, change: 0.25, from: 0.25, to: 0.5, volume: 5000,
+    categoryLabel: 'Tech', categoryEmoji: '💻',
+  }));
+  const mkHigh = (n) => Array.from({ length: n }, (_, i) => ({
+    id: `mk:hc${i}`, rawId: `hc${i}`, question: `High ${i}`, url: '#',
+    chance: 0.8, volume: 4000, categoryLabel: 'Politics', categoryEmoji: '🏛️',
+  }));
+  const mkExcl = (n) => Array.from({ length: n }, (_, i) => ({
+    kind: 'event', id: `ev:ex${i}`, title: `Excluded ${i}`, url: '#', volume: 100,
+    reason: 'X / Twitter post', reasonId: 'x-posts', matched: 'tweet',
+    category: 'tech', categoryLabel: 'Tech', categoryEmoji: '💻',
+  }));
+  const s = buildSummary({
+    categories: [],
+    movers: { day: { total: 120, items: mkMovers(120) }, threeDay: { total: 0, items: [] } },
+    highChance: { total: 110, items: mkHigh(110) },
+    excluded: mkExcl(105),
+  }, { threshold: 3000, windowDays: 7, freshDays: 2, categoryPageSize: 100, generatedAt: GEN });
+  const html = renderHtml(s, { now: GEN });
+  assert.ok(html.includes('data-pager="pg-movers-day"'), 'movers 24h paginated');
+  assert.ok(html.includes('data-pager="pg-highchance"'), 'high-chance paginated');
+  assert.ok(html.includes('data-pager="pg-excluded"'), 'excluded paginated');
+});
+
 test('a category with more than 100 markets renders pagination chips', () => {
   const many = Array.from({ length: 130 }, (_, i) => ({
     id: String(1000 + i), title: `Market ${i}`, url: '#', volume: 10, tags: [], createdAt: GEN.toISOString(),
